@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+.DS_Store
+.env
+*.log
+.run/
+.vscode/
+.idea/
+logs/
+*.csv
+
+# Generated cache artifacts
+data/cache/tfidf_matrix.npy
+data/cache/tfidf_sim.npy
+data/cache/tfidf_vectorizer.pkl
+data/cache/embeddings.npy
+data/cache/emb_sim.npy
+
+# Backup files
+*.bak

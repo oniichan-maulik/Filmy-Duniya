@@ -1,0 +1,17 @@
+[Unit]
+Description=Movie Recommender Frontend (Streamlit)
+After=network.target movie_recommender-backend.service
+
+[Service]
+Type=simple
+# Optionally set User to a system user that has permissions to the project directory.
+# If left unset the service will run as root. Adjust before enabling on your host.
+WorkingDirectory=/opt/filmy-duniya
+Environment=PATH=/opt/filmy-duniya/.venv/bin:/usr/bin:/bin
+Environment=API_URL=http://127.0.0.1:8000
+ExecStart=/opt/filmy-duniya/.venv/bin/streamlit run web/app_streamlit.py --server.port 8501 --server.headless true --server.address 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
