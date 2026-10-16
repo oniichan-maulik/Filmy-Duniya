@@ -210,7 +210,7 @@ st.markdown(
         padding-left: 16px;
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
     }
-    .stButton > button {
+    .stButton button {
         background: linear-gradient(90deg, var(--accent), var(--accent-2));
         color: #06060e;
         border: 0;
@@ -219,7 +219,7 @@ st.markdown(
         font-weight: 700;
         box-shadow: var(--glow);
     }
-    .stButton > button:hover {filter: brightness(1.07);}    
+    .stButton button:hover {filter: brightness(1.07);}
     .app-shell {max-width: 1220px; margin: 0 auto;}
     .topbar {
         display:flex; align-items:center; gap:14px; justify-content:space-between;
