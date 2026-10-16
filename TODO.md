@@ -2,7 +2,7 @@
 
 ## Step 1: Create/Update TODO.md [COMPLETED]
 
-## Step 2: Edit web/app_streamlit.py
+## Step 2: Edit web/app_streamlit.py [COMPLETED]
 - Remove `continuous_voice = st.sidebar.checkbox("🎤 Continuous Voice Mode", value=False)`
 - Set `continuous_voice = False` hardcoded
 - Remove `AUTO_REFRESH = st.sidebar.checkbox("Enable auto-refresh (poll backend)", value=False)`
@@ -22,13 +22,12 @@
 - Check events: `python -m src.personalization_model --status`
 - Train: `python -m src.personalization_model --train --min-events 5`
 
-## Step 5: Train Emotion Model  
-- Ensure FER data: `python -m src.import_fer_dataset`
-- Train: `python -m src.train_emotion_model --train-dir data/fer2013/train --test-dir data/fer2013/test`
+## Step 5: Train Emotion Model [OBSOLETE]
+- Replaced by the pretrained HSEmotion model (no training needed); see README "Mood detection"
 
 ## Step 6: Final Verification
 - Restart app, test full flow: mood→recommend→select movie (pauses refresh)
 - Check model status: `python -m src.personalization_model --status`
 - Update this TODO with completion marks
 
-**Next step: Edit web/app_streamlit.py**
+**Next step: Train personalization model (Step 4)**

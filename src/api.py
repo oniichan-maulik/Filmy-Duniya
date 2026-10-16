@@ -1,6 +1,5 @@
 import asyncio
 import threading
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -19,11 +18,8 @@ from src.data__loader import append_movie, load_movies
 from src.recomender import build_index, recommend_by_genre, recommend_by_title
 from src.scraper import scrape_top_n_movies
 from src.user_store import personalization_status, train_personalization_now
-from src.emotion_detection import detect_emotion_details, detect_emotion_from_bytes
+from src.emotion_detection import detect_emotion_from_bytes
 import base64
-import io
-from PIL import Image
-import numpy as np
 
 
 

@@ -8,10 +8,7 @@ import io
 from difflib import get_close_matches
 import re
 import sys
-import os
 import time
-import threading
-import queue
 from urllib.parse import quote_plus
 import pandas as pd
 
@@ -165,16 +162,6 @@ def populate_video_db_with_trailers(tmdb_api_key: Optional[str], limit: int = 15
             save_video_source(title, url)
             added += 1
     return added
-
-# Configure default emotion model path only if a known local model file exists.
-_MODEL_CANDIDATES = [
-    repo_root / "models" / "emotion_model.h5",
-    repo_root / "src" / "fer2013_mini_XCEPTION.102-0.66.hdf5",
-]
-for _p in _MODEL_CANDIDATES:
-    if _p.exists():
-        os.environ.setdefault("EMOTION_MODEL_PATH", str(_p))
-        break
 
 st.set_page_config(page_title="Filmy Duniya", layout="wide")
 
@@ -1154,19 +1141,15 @@ if mode == "Mood Based":
         st.session_state["last_private_scan_ts"] = now
         try:
             final_details = detect_face_mood_backend()
-        except RuntimeError:
+        except (RuntimeError, OSError) as exc:
+            # surface the reason; failing silently here once hid a broken face detector
+            st.caption(f"Mood scan unavailable: {exc}")
             final_details = None
 
         mood = final_details["mood"] if final_details else None
         if mood:
             st.session_state["last_mood_source"] = str(final_details.get("source", "unknown"))
-            top_moods = final_details.get("top_moods", [])
             recent = st.session_state.get("recent_detected_moods", [])
-            if len(recent) >= 3 and all(m == mood for m in recent[-3:]) and len(top_moods) > 1:
-                first_name, first_score = top_moods[0]
-                second_name, second_score = top_moods[1]
-                if second_name != first_name and second_score >= (0.75 * first_score):
-                    mood = second_name
             recent.append(mood)
             st.session_state["recent_detected_moods"] = recent[-6:]
             st.session_state["detected_mood"] = mood
