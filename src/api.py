@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -63,7 +64,7 @@ _TRAIN_STATE: Dict[str, Any] = {"last_events": 0, "last_trained_at": None}
 def _scrape_dataset(force: bool = False) -> None:
     if not ENABLE_AUTO_SCRAPER:
         return
-    if not TMDB_API_KEY or TMDB_API_KEY == "785c5f1bd5e3e823f06abdfe6168588e":
+    if not TMDB_API_KEY:
         logger.warning("TMDB_API_KEY is not set; skipping automatic scraper run.")
         return
     try:
@@ -220,17 +221,19 @@ async def analyze_frame(req: AnalyzeFrameRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Image decode failed: {str(e)}")
 
 
+_last_audio_time = 0.0
+
+
 @app.post("/analyze_audio")
 @app.post("/stream_voice")
 async def analyze_audio(req: AnalyzeAudioRequest) -> Dict[str, Any]:
     """Analyze streaming audio chunk for voice mood + transcription. Rate-limited to 1/sec."""
     # Simple rate limit (per IP in production use middleware)
     now = time.time()
-    if 'last_audio_time' not in st.session_state:
-        st.session_state['last_audio_time'] = 0
-    if now - st.session_state['last_audio_time'] < 1.0:
+    global _last_audio_time
+    if now - _last_audio_time < 1.0:
         raise HTTPException(status_code=429, detail="Rate limited - wait 1s")
-    st.session_state['last_audio_time'] = now
+    _last_audio_time = now
     
     try:
         audio_data = base64.b64decode(req.audio_b64)

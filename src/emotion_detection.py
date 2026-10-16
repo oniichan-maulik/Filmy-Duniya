@@ -351,6 +351,25 @@ def detect_emotion_details(frame: np.ndarray, model=None) -> Optional[Dict[str, 
     }
 
 
+def detect_emotion_from_bytes(image_bytes: bytes, model=None) -> Optional[Dict[str, Any]]:
+    """Decode encoded image bytes (JPEG/PNG) and return JSON-safe emotion details.
+
+    Returns None when the image has no detectable face. Raises ValueError when
+    the bytes can't be decoded as an image.
+    """
+    _ensure_runtime_deps()
+    buf = np.frombuffer(image_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise ValueError("Could not decode image bytes")
+    details = detect_emotion_details(frame, model=model)
+    if not details:
+        return None
+    # face_preview is a numpy array, which FastAPI can't serialize
+    details.pop("face_preview", None)
+    return details
+
+
 def detect_mood_from_frame(frame: np.ndarray, model=None) -> Optional[str]:
     """Map detected emotion to app mood. Returns None when no face is detected."""
     details = detect_emotion_details(frame, model=model)

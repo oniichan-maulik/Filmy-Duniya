@@ -163,7 +163,6 @@ def _load_legacy_feedback_events() -> List[Dict[str, Any]]:
                     }
                 )
     return events
-    return rows
 
 
 def _feature_dict(movie: Dict[str, Any], mood: Optional[str]) -> Dict[str, float]:
