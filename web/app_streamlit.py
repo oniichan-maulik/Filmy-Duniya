@@ -15,12 +15,6 @@ import queue
 from urllib.parse import quote_plus
 import pandas as pd
 
-try:
-    import sounddevice as _sd  # noqa: F401
-    _HAS_SOUNDDEVICE = True
-except Exception:
-    _HAS_SOUNDDEVICE = False
-
 # Ensure project root is on sys.path so `src` imports work when Streamlit
 # runs with a different CWD. This inserts the repo root (one level up from
 # this `web/` folder) at the front of sys.path.
@@ -38,9 +32,7 @@ from src.user_store import (
     record_feedback,
     rerank_results_for_learning,
 )
-from src.multimodal_mood import (
-    detect_multimodal_mood_backend,
-)
+from src.emotion_detection import detect_face_mood_backend
 
 # placeholder image used when no poster can be found
 PLACEHOLDER_URL = "https://via.placeholder.com/200x300?text=No+Poster"
@@ -402,7 +394,6 @@ st.sidebar.header("Recommendation Mode")
 mode = "Mood Based"
 st.sidebar.caption("Mood-based recommendation is always enabled.")
 
-continuous_voice = False
 NUM = st.sidebar.slider("Number of recommendations", min_value=1, max_value=50, value=30)
 AUTO_REFRESH = False
 POLL_INTERVAL = 10  # refresh interval in seconds
@@ -411,9 +402,6 @@ content_types = st.sidebar.multiselect(
     options=["Movies", "TV Shows"],
     default=["Movies", "TV Shows"],
 )
-
-st.session_state.setdefault("voice_transcript", "")
-st.session_state.setdefault("voice_mood", "calm")
 
 if TMDB_API_KEY:
     with st.sidebar.expander("Trailer prefetch"):
@@ -439,22 +427,6 @@ def _clean_poster_value(value: Optional[str]) -> Optional[str]:
         stripped = value.strip()
         return stripped or None
     return None
-
-
-def _friendly_transcript_issue(raw_error: str) -> str:
-    text = str(raw_error or "").strip()
-    if not text:
-        return ""
-    low = text.lower()
-    if "unknownvalueerror" in low:
-        return "Could not understand speech. Please speak a bit slower and closer to the mic."
-    if "requesterror" in low or "google:" in low:
-        return "Google speech service is unavailable right now."
-    if "pocketsphinx not installed" in low:
-        return "Offline speech fallback is not installed (PocketSphinx)."
-    if "speech_recognition_missing" in low:
-        return "Speech recognition package is missing on the server."
-    return "Voice transcription is currently unavailable."
 
 
 @st.cache_data(ttl=60 * 60)
@@ -715,21 +687,6 @@ def _apply_content_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df[mt.isin(allowed)]
 
 
-def _resolve_voice_title(spoken_text: str, df: pd.DataFrame) -> Optional[str]:
-    text = str(spoken_text or "").strip()
-    text = re.sub(r"[^\w\s']", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text or df.empty or "title" not in df.columns:
-        return None
-    titles = df["title"].fillna("").astype(str).tolist()
-    low = text.lower()
-    contains = [t for t in titles if low in t.lower() or t.lower() in low]
-    if contains:
-        return contains[0]
-    close = get_close_matches(text, titles, n=1, cutoff=0.55)
-    return close[0] if close else None
-
-
 def _sort_matches_by_rating(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -817,7 +774,7 @@ banner_desc = str(banner_main.get("description", "") or banner_main.get("overvie
 if banner_desc:
     banner_desc = banner_desc[:170] + ("..." if len(banner_desc) > 170 else "")
 else:
-    banner_desc = "Live recommendations based on mood, voice, and your learning profile."
+    banner_desc = "Live recommendations based on your mood and learning profile."
 banner_watch_url = f"?watch_token={banner_token}&watch_title={quote_plus(str(banner_main.get('title','')))}"
 st.markdown(
     f"""
@@ -1196,25 +1153,9 @@ if mode == "Mood Based":
     if should_scan:
         st.session_state["last_private_scan_ts"] = now
         try:
-            final_details = detect_multimodal_mood_backend(
-                voice_duration_sec=2.0,
-                use_parallel_threads=True,
-            )
+            final_details = detect_face_mood_backend()
         except RuntimeError:
             final_details = None
-
-        if final_details:
-            spoken_text = str(final_details.get("spoken_text", "")).strip()
-            if spoken_text:
-                st.session_state["last_voice_transcript"] = spoken_text
-                matched = _resolve_voice_title(spoken_text, _apply_content_filter(load_movies()))
-                if matched:
-                    st.session_state["voice_title_query"] = matched
-                else:
-                    st.session_state["voice_title_query"] = spoken_text
-            transcript_err = str(final_details.get("voice_transcript_error", "")).strip()
-            if transcript_err and not spoken_text:
-                st.caption(f"Voice transcript issue: {_friendly_transcript_issue(transcript_err)}")
 
         mood = final_details["mood"] if final_details else None
         if mood:
@@ -1232,19 +1173,11 @@ if mode == "Mood Based":
 
 
         st.caption(f"Detected mood: {str(st.session_state.get('detected_mood')).upper()} | Source: {st.session_state.get('last_mood_source', 'unknown')}")
-    if not _HAS_SOUNDDEVICE:
-        st.caption("Voice backend unavailable in this runtime (install `sounddevice` + PortAudio). Using face-only.")
     st.markdown("---")
 
 # auto-search on input/genre selection (no button)
 detected_mood = st.session_state.get("detected_mood")
-voice_title = str(st.session_state.get("voice_title_query", "")).strip()
-voice_live = st.session_state.get("voice_transcript", "").strip()
-title = typed_query or voice_live or voice_title
-if voice_live:
-    st.caption(f"🔴 Live voice: **{voice_live}**")
-if voice_title and not typed_query and not voice_live:
-    st.caption(f"Voice movie request: **{voice_title}**")
+title = typed_query
 
 if title:
     base = _apply_content_filter(load_movies())

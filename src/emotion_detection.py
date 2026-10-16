@@ -376,3 +376,34 @@ def detect_mood_from_frame(frame: np.ndarray, model=None) -> Optional[str]:
     if not details:
         return None
     return details["mood"]
+
+
+def capture_backend_frame(camera_index: int = 0, warmup_frames: int = 20) -> Optional[np.ndarray]:
+    """Grab one frame from the local webcam, after letting auto-exposure settle."""
+    if not _HAS_CV2:
+        raise RuntimeError("OpenCV is not installed; backend camera capture is unavailable.")
+
+    cap = cv2.VideoCapture(camera_index)
+    if not cap or not cap.isOpened():
+        raise RuntimeError("Cannot access camera device for backend face scan.")
+
+    frame = None
+    try:
+        for _ in range(max(1, warmup_frames)):
+            ok, frm = cap.read()
+            if ok:
+                frame = frm
+    finally:
+        cap.release()
+
+    if frame is None:
+        raise RuntimeError("Camera frame capture failed.")
+    return frame
+
+
+def detect_face_mood_backend() -> Optional[Dict[str, Any]]:
+    """Capture a webcam frame and return emotion details, or None if no face is found."""
+    details = detect_emotion_details(capture_backend_frame())
+    if details:
+        details["source"] = "face"
+    return details
