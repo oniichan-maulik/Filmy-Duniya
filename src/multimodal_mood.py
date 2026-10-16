@@ -27,7 +27,7 @@ def _empty_scores() -> Dict[str, float]:
     return {m: 0.0 for m in _MOOD_LIST}
 
 
-def capture_backend_frame(camera_index: int = 0, warmup_frames: int = 8) -> Optional[np.ndarray]:
+def capture_backend_frame(camera_index: int = 0, warmup_frames: int = 20) -> Optional[np.ndarray]:
     if not _HAS_CV2:
         raise RuntimeError("OpenCV is not installed; backend camera capture is unavailable.")
 
@@ -77,6 +77,9 @@ def _decode_wav(audio_bytes: bytes) -> np.ndarray:
     return np.clip(arr, -1.0, 1.0)
 
 
+_SILENCE_RMS = 0.01
+
+
 def analyze_voice_mood_from_wav_bytes(audio_bytes: bytes) -> Dict[str, Any]:
     signal = _decode_wav(audio_bytes)
     if signal.size < 200:
@@ -107,6 +110,9 @@ def analyze_voice_mood_from_wav_bytes(audio_bytes: bytes) -> Dict[str, Any]:
         "source": "voice",
         "mood": mood,
         "confidence": float(conf),
+        # below ~-40 dBFS there's no speech; the rules above would otherwise read
+        # room noise as a mood
+        "is_silent": rms < _SILENCE_RMS,
         "top_moods": [(m, float(s)) for m, s in ranked[:3]],
         "features": {"rms": rms, "zcr": zcr, "peak": peak},
         "mood_scores": probs,
@@ -237,6 +243,8 @@ def fuse_mood_signals(
     face_weight: float = 0.70,
     voice_weight: float = 0.30,
 ) -> Optional[Dict[str, Any]]:
+    if voice_details and voice_details.get("is_silent"):
+        voice_details = None
     if not face_details and not voice_details:
         return None
 
@@ -245,10 +253,15 @@ def fuse_mood_signals(
 
     if face_details:
         used_sources.append("face")
-        face_scores = face_details.get("mood_scores") or {face_details.get("mood"): 1.0}
+        face_scores = dict(face_details.get("mood_scores") or {})
+        picked = face_details.get("mood")
+        # Blend the raw scores with the face detector's own decision, which already
+        # corrects for webcam faces that lean neutral.
+        face_scores = {m: 0.5 * float(face_scores.get(m, 0.0)) for m in scores}
+        if picked in face_scores:
+            face_scores[picked] += 0.5
         for mood, val in face_scores.items():
-            if mood in scores:
-                scores[mood] += float(val) * face_weight
+            scores[mood] += val * face_weight
 
     if voice_details:
         used_sources.append("voice")

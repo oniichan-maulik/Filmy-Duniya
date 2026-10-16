@@ -14,5 +14,5 @@ playwright>=1.43.0
 lark>=1.3.0
 sounddevice>=0.4.7
 SpeechRecognition>=3.10.4
-opencv-python>=4.10.0
+opencv-python>=4.10.0,<5  # 5.x no longer bundles the Haar face cascades
 tensorflow>=2.16.0
