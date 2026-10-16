@@ -60,13 +60,6 @@ curl -X POST -H "Content-Type: application/json" \
 
 The Streamlit UI also has an "Add a new movie" form in the sidebar and an "Enable auto-refresh" checkbox which will poll the backend and refresh the UI on the selected interval.
 
-Voice title search
-------------------
-- Use the **Listen movie name (3s)** button in the Streamlit UI.
-- The app records microphone audio from the runtime/server where Streamlit is running.
-- Primary transcription uses Google Web Speech via `SpeechRecognition` (internet usually required).
-- Offline fallback via Sphinx is attempted automatically if available.
-
 Docker / docker-compose
 -----------------------
 If you prefer to run both services with Docker, a `docker-compose.yml` is included at the project root.
@@ -145,5 +138,4 @@ Personalization model training:
 The Streamlit app also exposes a "Train personalization model now" button in the learning section.
 
 Notes
-- I added small compatibility wrappers in `src/` so `main.py` and the API import paths match the existing codebase.
 - Need pinned dependencies? Run `python3 -m pip freeze > requirements.lock.txt` after creating your environment.
