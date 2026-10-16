@@ -113,6 +113,7 @@ def _youtube_embed_url(url: str) -> Optional[str]:
     return None
 
 
+@st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
 def fetch_trailer_url(title: str, tmdb_api_key: Optional[str]) -> Optional[str]:
     """Try to grab a YouTube trailer URL from TMDB."""
     if not tmdb_api_key or not title:
@@ -351,16 +352,6 @@ if TMDB_API_KEY:
 else:
     st.sidebar.warning("TMDB API key missing; posters/ratings may use placeholders.")
 
-# Auto-populate trailers into the local video DB (YouTube links via TMDB).
-if TMDB_API_KEY and not st.session_state.get("_trailers_prefetched", False):
-    try:
-        df_tmp = load_movies()
-        lim = max(200, len(df_tmp)) if not df_tmp.empty else 200
-        populate_video_db_with_trailers(TMDB_API_KEY, limit=lim)
-        st.session_state["_trailers_prefetched"] = True
-    except Exception:
-        st.session_state["_trailers_prefetched"] = True
-
 st.sidebar.header("User Sign-In")
 st.session_state.setdefault("signed_in", False)
 st.session_state.setdefault("user_email", "")
@@ -570,10 +561,12 @@ def show_movie_card(movie: dict[str, object], tmdb_api_key: Optional[str]):
         unsafe_allow_html=True,
     )
     
-    # TMDB rating
-    tmdb_info = fetch_tmdb_info(title_str, tmdb_api_key)
-    rating_val = tmdb_info.get("rating") if tmdb_info else movie.get("rating", None)
-    if rating_val is None or str(rating_val).strip() == "":
+    # Rating comes from TMDB at scrape time; only look it up when it's missing
+    rating_val = pd.to_numeric(movie.get("rating"), errors="coerce")
+    if pd.isna(rating_val):
+        tmdb_info = fetch_tmdb_info(title_str, tmdb_api_key)
+        rating_val = pd.to_numeric(tmdb_info.get("rating"), errors="coerce")
+    if pd.isna(rating_val):
         rating_val = 0.0
     
     st.markdown(render_star_rating(float(rating_val)), unsafe_allow_html=True)
