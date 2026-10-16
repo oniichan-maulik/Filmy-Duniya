@@ -222,6 +222,32 @@ st.markdown(
         box-shadow: var(--glow);
     }
     .stButton button:hover {filter: brightness(1.07);}
+    /* st.pills (mood picker): match the dark .pill chips; selected = accent gradient */
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--stroke);
+        color: var(--muted);
+    }
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button * {color: inherit;}
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button:hover {
+        border-color: rgba(157,100,255,0.5);
+        color: var(--text);
+        box-shadow: var(--glow);
+    }
+    /* !important: Streamlit colors the selected pill with its red primary color */
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"],
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"] * {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
+        border-color: transparent !important;
+        color: #06060e !important;
+        font-weight: 700;
+    }
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"] * {
+        background: transparent !important;
+    }
+    [data-testid="stMain"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]) [data-testid="stWidgetLabel"] {
+        color: var(--muted);
+    }
     .app-shell {max-width: 1220px; margin: 0 auto;}
     .topbar {
         display:flex; align-items:center; gap:14px; justify-content:space-between;
@@ -1133,6 +1159,29 @@ if st.session_state.get("page") == "favorites":
 
 st.markdown("<div class='section-title'>Recommendations</div>", unsafe_allow_html=True)
 
+MOOD_EMOJI = {
+    "happy": "😄", "sad": "😢", "angry": "😠",
+    "anxious": "😰", "excited": "🤩", "calm": "😌",
+}
+
+
+def _on_mood_pick() -> None:
+    picked = st.session_state.get("mood_pick")
+    if picked:
+        # a manual pick wins over the camera until the user asks to scan again
+        st.session_state["detected_mood"] = picked
+        st.session_state["last_mood_source"] = "picked by you"
+        st.session_state["mood_locked"] = True
+    else:
+        st.session_state["mood_locked"] = False
+        st.session_state["last_private_scan_ts"] = 0.0  # scan right away
+
+
+def _on_rescan() -> None:
+    st.session_state["mood_locked"] = False
+    st.session_state["mood_pick"] = None
+
+
 # Mood-based flow using backend-only private sensing
 if mode == "Mood Based":
     st.session_state.setdefault("recent_detected_moods", [])
@@ -1155,6 +1204,7 @@ if mode == "Mood Based":
             key="rescan-mood",
             use_container_width=True,
             help="Scan your face again and refresh the suggestions",
+            on_click=_on_rescan,
         )
 
     if manual_override:
@@ -1163,6 +1213,8 @@ if mode == "Mood Based":
             "Mood scanning paused while you search or filter genres. "
             "Clear them to see mood suggestions."
         )
+    if st.session_state.get("mood_locked"):
+        should_scan = False
     st.session_state.setdefault("mood_pick_seed", int(time.time()))
     if rescan_clicked:
         should_scan = True
@@ -1191,6 +1243,16 @@ if mode == "Mood Based":
             f"Detected mood: **{str(st.session_state['detected_mood']).upper()}** "
             f"| Source: {st.session_state.get('last_mood_source', 'unknown')}"
         )
+    with mood_col:
+        st.pills(
+            "Not right? Pick your mood",
+            options=list(MOOD_TO_GENRES.keys()),
+            format_func=lambda m: f"{MOOD_EMOJI.get(m, '')} {m.title()}",
+            key="mood_pick",
+            on_change=_on_mood_pick,
+        )
+    if st.session_state.get("mood_locked") and not manual_override:
+        mood_col.caption("Camera paused while using your pick. Click 🔄 Re-check mood to scan again.")
     st.markdown("---")
 
 # auto-search on input/genre selection (no button)
