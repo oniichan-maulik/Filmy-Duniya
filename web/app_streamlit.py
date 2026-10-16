@@ -1134,16 +1134,30 @@ if mode == "Mood Based":
         )
     )
 
+    mood_col, rescan_col = st.columns([4, 1])
+    with rescan_col:
+        rescan_clicked = st.button(
+            "🔄 Re-check mood",
+            key="rescan-mood",
+            use_container_width=True,
+            help="Scan your face again and refresh the suggestions",
+        )
+
     if manual_override:
         should_scan = False
-        st.caption("Mood scanning paused while you search or filter genres.")
+        mood_col.caption(
+            "Mood scanning paused while you search or filter genres. "
+            "Clear them to see mood suggestions."
+        )
+    if rescan_clicked:
+        should_scan = True
     if should_scan:
         st.session_state["last_private_scan_ts"] = now
         try:
             final_details = detect_face_mood_backend()
         except (RuntimeError, OSError) as exc:
             # surface the reason; failing silently here once hid a broken face detector
-            st.caption(f"Mood scan unavailable: {exc}")
+            mood_col.caption(f"Mood scan unavailable: {exc}")
             final_details = None
 
         mood = final_details["mood"] if final_details else None
@@ -1153,9 +1167,14 @@ if mode == "Mood Based":
             recent.append(mood)
             st.session_state["recent_detected_moods"] = recent[-6:]
             st.session_state["detected_mood"] = mood
+        elif final_details is None and rescan_clicked:
+            mood_col.caption("No face found. Face the camera with good lighting and try again.")
 
-
-        st.caption(f"Detected mood: {str(st.session_state.get('detected_mood')).upper()} | Source: {st.session_state.get('last_mood_source', 'unknown')}")
+    if st.session_state.get("detected_mood"):
+        mood_col.caption(
+            f"Detected mood: **{str(st.session_state['detected_mood']).upper()}** "
+            f"| Source: {st.session_state.get('last_mood_source', 'unknown')}"
+        )
     st.markdown("---")
 
 # auto-search on input/genre selection (no button)
