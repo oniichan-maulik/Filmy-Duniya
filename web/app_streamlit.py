@@ -184,13 +184,20 @@ for _p in _MODEL_CANDIDATES:
         os.environ.setdefault("EMOTION_MODEL_PATH", str(_p))
         break
 
-st.set_page_config(page_title="Flimi Duniya", layout="wide")
+st.set_page_config(page_title="Filmy Duniya", layout="wide")
 
 # cinematic dark UI styles
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600&display=swap');
+    /* hide Streamlit's top toolbar (Deploy, menu) and the colored strip; keep sidebar toggle */
+    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {
+        display: none !important;
+    }
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
     :root {
         --bg: #05050b;
         --panel: #0b0b15;
@@ -353,14 +360,11 @@ st.markdown(
 )
 
 # TMDB key: prefer Streamlit secrets, then env/config, otherwise empty
-secrets_key = "785c5f1bd5e3e823f06abdfe6168588e"
 try:
-    secrets_key = str(st.secrets.get("TMDB_API_KEY", "785c5f1bd5e3e823f06abdfe6168588e")).strip()
+    secrets_key = str(st.secrets.get("TMDB_API_KEY", "")).strip()
 except Exception:
     secrets_key = ""
-default_key = secrets_key or (
-    DEFAULT_TMDB_KEY if DEFAULT_TMDB_KEY and DEFAULT_TMDB_KEY != "785c5f1bd5e3e823f06abdfe6168588e" else ""
-)
+default_key = secrets_key or DEFAULT_TMDB_KEY or ""
 tmdb_input = st.sidebar.text_input("TMDB API key", type="password", value=default_key)
 TMDB_API_KEY = (tmdb_input or "").strip()
 if TMDB_API_KEY:
