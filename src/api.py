@@ -18,17 +18,8 @@ from src.data__loader import append_movie, load_movies
 from src.recomender import build_index, recommend_by_genre, recommend_by_title
 from src.scraper import scrape_top_n_movies
 from src.user_store import personalization_status, train_personalization_now
-from src.emotion_detection import detect_emotion_details, detect_emotion_from_bytes
-from src.multimodal_mood import (
-    analyze_voice_mood_from_wav_bytes, 
-    transcribe_movie_title_from_wav_bytes,
-    detect_face_mood_backend,
-    capture_voice_wav_bytes_backend
-)
+from src.emotion_detection import detect_emotion_from_bytes
 import base64
-import io
-from PIL import Image
-import numpy as np
 
 
 
@@ -63,7 +54,7 @@ _TRAIN_STATE: Dict[str, Any] = {"last_events": 0, "last_trained_at": None}
 def _scrape_dataset(force: bool = False) -> None:
     if not ENABLE_AUTO_SCRAPER:
         return
-    if not TMDB_API_KEY or TMDB_API_KEY == "785c5f1bd5e3e823f06abdfe6168588e":
+    if not TMDB_API_KEY:
         logger.warning("TMDB_API_KEY is not set; skipping automatic scraper run.")
         return
     try:
@@ -197,15 +188,6 @@ class AnalyzeFrameRequest(BaseModel):
     image_b64: str = Field(..., description="Base64 encoded image (JPEG/PNG)")
 
 
-class AnalyzeAudioRequest(BaseModel):
-    audio_b64: str = Field(..., description="Base64 encoded WAV bytes")
-
-
-class AnalyzeMultimodalRequest(BaseModel):
-    image_b64: Optional[str] = None
-    audio_b64: Optional[str] = None
-
-
 @app.post("/analyze_frame")
 async def analyze_frame(req: AnalyzeFrameRequest) -> Dict[str, Any]:
     """Analyze single frame for emotion/mood. Returns emotion details."""
@@ -218,60 +200,3 @@ async def analyze_frame(req: AnalyzeFrameRequest) -> Dict[str, Any]:
         return img_array
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image decode failed: {str(e)}")
-
-
-@app.post("/analyze_audio")
-@app.post("/stream_voice")
-async def analyze_audio(req: AnalyzeAudioRequest) -> Dict[str, Any]:
-    """Analyze streaming audio chunk for voice mood + transcription. Rate-limited to 1/sec."""
-    # Simple rate limit (per IP in production use middleware)
-    now = time.time()
-    if 'last_audio_time' not in st.session_state:
-        st.session_state['last_audio_time'] = 0
-    if now - st.session_state['last_audio_time'] < 1.0:
-        raise HTTPException(status_code=429, detail="Rate limited - wait 1s")
-    st.session_state['last_audio_time'] = now
-    
-    try:
-        audio_data = base64.b64decode(req.audio_b64)
-        voice_mood = analyze_voice_mood_from_wav_bytes(audio_data)
-        transcript = transcribe_movie_title_from_wav_bytes(audio_data)
-        return {
-            **voice_mood,
-            "transcript": transcript,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Audio analysis failed: {str(e)}")
-
-
-
-@app.post("/analyze_multimodal")
-async def analyze_multimodal(req: AnalyzeMultimodalRequest) -> Dict[str, Any]:
-    """Full multimodal analysis (face + voice fusion)."""
-    try:
-        face_details = None
-        voice_details = None
-        transcript = None
-        
-        if req.image_b64:
-            img_data = base64.b64decode(req.image_b64)
-            face_details = detect_emotion_from_bytes(img_data)
-        
-        if req.audio_b64:
-            audio_data = base64.b64decode(req.audio_b64)
-            voice_details = analyze_voice_mood_from_wav_bytes(audio_data)
-            transcript = transcribe_movie_title_from_wav_bytes(audio_data)
-        
-        from src.multimodal_mood import fuse_mood_signals
-        fused = fuse_mood_signals(face_details, voice_details)
-        
-        result = {
-            "fused_mood": fused,
-            "face": face_details,
-            "voice": voice_details,
-            "transcript": transcript,
-        }
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Multimodal analysis failed: {str(e)}")
-

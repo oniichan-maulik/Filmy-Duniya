@@ -7,14 +7,16 @@ from src.similarity import compute_similarity_from_matrix, load_similarity
 from src.config import USE_EMBEDDINGS
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Mood to genre mapping used by UI/API mood flows.
+# Mood to genre mapping used by UI/API mood flows. Names must be TMDB genres:
+# matching is a case-insensitive substring test, so "Action" also matches the
+# TV genre "Action & Adventure" and "Sci-Fi" matches "Sci-Fi & Fantasy".
 MOOD_TO_GENRES = {
-    "happy": ["Comedy", "Romance", "Family"],
-    "sad": ["Drama", "Feel-Good"],
-    "angry": ["Action", "Thriller"],
-    "anxious": ["Animation", "Comedy"],
-    "excited": ["Adventure", "Sci-Fi"],
-    "calm": ["Documentary", "Slice of Life"],
+    "happy": ["Comedy", "Romance", "Family", "Music"],
+    "sad": ["Drama", "Romance", "Family"],
+    "angry": ["Action", "Thriller", "Crime", "War"],
+    "anxious": ["Animation", "Comedy", "Family", "Kids"],
+    "excited": ["Adventure", "Science Fiction", "Sci-Fi", "Fantasy"],
+    "calm": ["Documentary", "History", "Music", "Animation", "Family"],
 }
 
 

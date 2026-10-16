@@ -8,18 +8,11 @@ import io
 from difflib import get_close_matches
 import re
 import sys
-import os
 import time
-import threading
-import queue
 from urllib.parse import quote_plus
+import zlib
+import numpy as np
 import pandas as pd
-
-try:
-    import sounddevice as _sd  # noqa: F401
-    _HAS_SOUNDDEVICE = True
-except Exception:
-    _HAS_SOUNDDEVICE = False
 
 # Ensure project root is on sys.path so `src` imports work when Streamlit
 # runs with a different CWD. This inserts the repo root (one level up from
@@ -38,9 +31,7 @@ from src.user_store import (
     record_feedback,
     rerank_results_for_learning,
 )
-from src.multimodal_mood import (
-    detect_multimodal_mood_backend,
-)
+from src.emotion_detection import detect_face_mood_backend
 
 # placeholder image used when no poster can be found
 PLACEHOLDER_URL = "https://via.placeholder.com/200x300?text=No+Poster"
@@ -124,6 +115,7 @@ def _youtube_embed_url(url: str) -> Optional[str]:
     return None
 
 
+@st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
 def fetch_trailer_url(title: str, tmdb_api_key: Optional[str]) -> Optional[str]:
     """Try to grab a YouTube trailer URL from TMDB."""
     if not tmdb_api_key or not title:
@@ -174,23 +166,20 @@ def populate_video_db_with_trailers(tmdb_api_key: Optional[str], limit: int = 15
             added += 1
     return added
 
-# Configure default emotion model path only if a known local model file exists.
-_MODEL_CANDIDATES = [
-    repo_root / "models" / "emotion_model.h5",
-    repo_root / "src" / "fer2013_mini_XCEPTION.102-0.66.hdf5",
-]
-for _p in _MODEL_CANDIDATES:
-    if _p.exists():
-        os.environ.setdefault("EMOTION_MODEL_PATH", str(_p))
-        break
-
-st.set_page_config(page_title="Flimi Duniya", layout="wide")
+st.set_page_config(page_title="Filmy Duniya", layout="wide")
 
 # cinematic dark UI styles
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600&display=swap');
+    /* hide Streamlit's top toolbar (Deploy, menu) and the colored strip; keep sidebar toggle */
+    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {
+        display: none !important;
+    }
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+    }
     :root {
         --bg: #05050b;
         --panel: #0b0b15;
@@ -223,7 +212,7 @@ st.markdown(
         padding-left: 16px;
         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
     }
-    .stButton > button {
+    .stButton button {
         background: linear-gradient(90deg, var(--accent), var(--accent-2));
         color: #06060e;
         border: 0;
@@ -232,7 +221,7 @@ st.markdown(
         font-weight: 700;
         box-shadow: var(--glow);
     }
-    .stButton > button:hover {filter: brightness(1.07);}    
+    .stButton button:hover {filter: brightness(1.07);}
     .app-shell {max-width: 1220px; margin: 0 auto;}
     .topbar {
         display:flex; align-items:center; gap:14px; justify-content:space-between;
@@ -353,30 +342,17 @@ st.markdown(
 )
 
 # TMDB key: prefer Streamlit secrets, then env/config, otherwise empty
-secrets_key = "785c5f1bd5e3e823f06abdfe6168588e"
 try:
-    secrets_key = str(st.secrets.get("TMDB_API_KEY", "785c5f1bd5e3e823f06abdfe6168588e")).strip()
+    secrets_key = str(st.secrets.get("TMDB_API_KEY", "")).strip()
 except Exception:
     secrets_key = ""
-default_key = secrets_key or (
-    DEFAULT_TMDB_KEY if DEFAULT_TMDB_KEY and DEFAULT_TMDB_KEY != "785c5f1bd5e3e823f06abdfe6168588e" else ""
-)
+default_key = secrets_key or DEFAULT_TMDB_KEY or ""
 tmdb_input = st.sidebar.text_input("TMDB API key", type="password", value=default_key)
 TMDB_API_KEY = (tmdb_input or "").strip()
 if TMDB_API_KEY:
     st.sidebar.success("Using TMDB for posters and ratings.")
 else:
     st.sidebar.warning("TMDB API key missing; posters/ratings may use placeholders.")
-
-# Auto-populate trailers into the local video DB (YouTube links via TMDB).
-if TMDB_API_KEY and not st.session_state.get("_trailers_prefetched", False):
-    try:
-        df_tmp = load_movies()
-        lim = max(200, len(df_tmp)) if not df_tmp.empty else 200
-        populate_video_db_with_trailers(TMDB_API_KEY, limit=lim)
-        st.session_state["_trailers_prefetched"] = True
-    except Exception:
-        st.session_state["_trailers_prefetched"] = True
 
 st.sidebar.header("User Sign-In")
 st.session_state.setdefault("signed_in", False)
@@ -398,7 +374,6 @@ st.sidebar.header("Recommendation Mode")
 mode = "Mood Based"
 st.sidebar.caption("Mood-based recommendation is always enabled.")
 
-continuous_voice = False
 NUM = st.sidebar.slider("Number of recommendations", min_value=1, max_value=50, value=30)
 AUTO_REFRESH = False
 POLL_INTERVAL = 10  # refresh interval in seconds
@@ -407,9 +382,6 @@ content_types = st.sidebar.multiselect(
     options=["Movies", "TV Shows"],
     default=["Movies", "TV Shows"],
 )
-
-st.session_state.setdefault("voice_transcript", "")
-st.session_state.setdefault("voice_mood", "calm")
 
 if TMDB_API_KEY:
     with st.sidebar.expander("Trailer prefetch"):
@@ -435,22 +407,6 @@ def _clean_poster_value(value: Optional[str]) -> Optional[str]:
         stripped = value.strip()
         return stripped or None
     return None
-
-
-def _friendly_transcript_issue(raw_error: str) -> str:
-    text = str(raw_error or "").strip()
-    if not text:
-        return ""
-    low = text.lower()
-    if "unknownvalueerror" in low:
-        return "Could not understand speech. Please speak a bit slower and closer to the mic."
-    if "requesterror" in low or "google:" in low:
-        return "Google speech service is unavailable right now."
-    if "pocketsphinx not installed" in low:
-        return "Offline speech fallback is not installed (PocketSphinx)."
-    if "speech_recognition_missing" in low:
-        return "Speech recognition package is missing on the server."
-    return "Voice transcription is currently unavailable."
 
 
 @st.cache_data(ttl=60 * 60)
@@ -607,10 +563,12 @@ def show_movie_card(movie: dict[str, object], tmdb_api_key: Optional[str]):
         unsafe_allow_html=True,
     )
     
-    # TMDB rating
-    tmdb_info = fetch_tmdb_info(title_str, tmdb_api_key)
-    rating_val = tmdb_info.get("rating") if tmdb_info else movie.get("rating", None)
-    if rating_val is None or str(rating_val).strip() == "":
+    # Rating comes from TMDB at scrape time; only look it up when it's missing
+    rating_val = pd.to_numeric(movie.get("rating"), errors="coerce")
+    if pd.isna(rating_val):
+        tmdb_info = fetch_tmdb_info(title_str, tmdb_api_key)
+        rating_val = pd.to_numeric(tmdb_info.get("rating"), errors="coerce")
+    if pd.isna(rating_val):
         rating_val = 0.0
     
     st.markdown(render_star_rating(float(rating_val)), unsafe_allow_html=True)
@@ -711,19 +669,23 @@ def _apply_content_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df[mt.isin(allowed)]
 
 
-def _resolve_voice_title(spoken_text: str, df: pd.DataFrame) -> Optional[str]:
-    text = str(spoken_text or "").strip()
-    text = re.sub(r"[^\w\s']", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text or df.empty or "title" not in df.columns:
-        return None
-    titles = df["title"].fillna("").astype(str).tolist()
-    low = text.lower()
-    contains = [t for t in titles if low in t.lower() or t.lower() in low]
-    if contains:
-        return contains[0]
-    close = get_close_matches(text, titles, n=1, cutoff=0.55)
-    return close[0] if close else None
+def _pick_varied(df: pd.DataFrame, n: int, seed: int, recent_titles: set[str]) -> pd.DataFrame:
+    """Pick n rows at random, favoring higher ratings and avoiding the last batch.
+
+    The same seed gives the same pick, so the list only changes when the caller
+    changes the seed (on "Re-check mood"), not on every Streamlit rerun.
+    """
+    if len(df) <= n:
+        return df
+    rating = pd.to_numeric(df["rating"], errors="coerce").fillna(0.0).clip(0, 10).to_numpy()
+    # each rating point makes a title ~2.7x likelier; tuned so picks average ~8/10
+    # while consecutive batches share only ~4 of 30 titles
+    weights = np.exp(rating - 10.0)
+    shown_last = df["title"].fillna("").astype(str).isin(recent_titles).to_numpy()
+    weights = np.where(shown_last, weights * 0.25, weights)
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(df), size=n, replace=False, p=weights / weights.sum())
+    return df.iloc[idx]
 
 
 def _sort_matches_by_rating(df: pd.DataFrame) -> pd.DataFrame:
@@ -813,7 +775,7 @@ banner_desc = str(banner_main.get("description", "") or banner_main.get("overvie
 if banner_desc:
     banner_desc = banner_desc[:170] + ("..." if len(banner_desc) > 170 else "")
 else:
-    banner_desc = "Live recommendations based on mood, voice, and your learning profile."
+    banner_desc = "Live recommendations based on your mood and learning profile."
 banner_watch_url = f"?watch_token={banner_token}&watch_title={quote_plus(str(banner_main.get('title','')))}"
 st.markdown(
     f"""
@@ -1186,61 +1148,54 @@ if mode == "Mood Based":
         )
     )
 
+    mood_col, rescan_col = st.columns([4, 1])
+    with rescan_col:
+        rescan_clicked = st.button(
+            "🔄 Re-check mood",
+            key="rescan-mood",
+            use_container_width=True,
+            help="Scan your face again and refresh the suggestions",
+        )
+
     if manual_override:
         should_scan = False
-        st.caption("Mood scanning paused while you search or filter genres.")
+        mood_col.caption(
+            "Mood scanning paused while you search or filter genres. "
+            "Clear them to see mood suggestions."
+        )
+    st.session_state.setdefault("mood_pick_seed", int(time.time()))
+    if rescan_clicked:
+        should_scan = True
+        st.session_state["mood_pick_seed"] += 1
     if should_scan:
         st.session_state["last_private_scan_ts"] = now
         try:
-            final_details = detect_multimodal_mood_backend(
-                voice_duration_sec=2.0,
-                use_parallel_threads=True,
-            )
-        except RuntimeError:
+            final_details = detect_face_mood_backend()
+        except (RuntimeError, OSError) as exc:
+            # surface the reason; failing silently here once hid a broken face detector
+            mood_col.caption(f"Mood scan unavailable: {exc}")
             final_details = None
-
-        if final_details:
-            spoken_text = str(final_details.get("spoken_text", "")).strip()
-            if spoken_text:
-                st.session_state["last_voice_transcript"] = spoken_text
-                matched = _resolve_voice_title(spoken_text, _apply_content_filter(load_movies()))
-                if matched:
-                    st.session_state["voice_title_query"] = matched
-                else:
-                    st.session_state["voice_title_query"] = spoken_text
-            transcript_err = str(final_details.get("voice_transcript_error", "")).strip()
-            if transcript_err and not spoken_text:
-                st.caption(f"Voice transcript issue: {_friendly_transcript_issue(transcript_err)}")
 
         mood = final_details["mood"] if final_details else None
         if mood:
             st.session_state["last_mood_source"] = str(final_details.get("source", "unknown"))
-            top_moods = final_details.get("top_moods", [])
             recent = st.session_state.get("recent_detected_moods", [])
-            if len(recent) >= 3 and all(m == mood for m in recent[-3:]) and len(top_moods) > 1:
-                first_name, first_score = top_moods[0]
-                second_name, second_score = top_moods[1]
-                if second_name != first_name and second_score >= (0.75 * first_score):
-                    mood = second_name
             recent.append(mood)
             st.session_state["recent_detected_moods"] = recent[-6:]
             st.session_state["detected_mood"] = mood
+        elif final_details is None and rescan_clicked:
+            mood_col.caption("No face found. Face the camera with good lighting and try again.")
 
-
-        st.caption(f"Detected mood: {str(st.session_state.get('detected_mood')).upper()} | Source: {st.session_state.get('last_mood_source', 'unknown')}")
-    if not _HAS_SOUNDDEVICE:
-        st.caption("Voice backend unavailable in this runtime (install `sounddevice` + PortAudio). Using face-only.")
+    if st.session_state.get("detected_mood"):
+        mood_col.caption(
+            f"Detected mood: **{str(st.session_state['detected_mood']).upper()}** "
+            f"| Source: {st.session_state.get('last_mood_source', 'unknown')}"
+        )
     st.markdown("---")
 
 # auto-search on input/genre selection (no button)
 detected_mood = st.session_state.get("detected_mood")
-voice_title = str(st.session_state.get("voice_title_query", "")).strip()
-voice_live = st.session_state.get("voice_transcript", "").strip()
-title = typed_query or voice_live or voice_title
-if voice_live:
-    st.caption(f"🔴 Live voice: **{voice_live}**")
-if voice_title and not typed_query and not voice_live:
-    st.caption(f"Voice movie request: **{voice_title}**")
+title = typed_query
 
 if title:
     base = _apply_content_filter(load_movies())
@@ -1278,9 +1233,19 @@ elif mode == "Mood Based" and detected_mood:
         if matches.empty:
             results = []
         else:
-            matches = _sort_matches_by_rating(matches)
-            results = matches.head(NUM).to_dict(orient="records")
-            results = rerank_results_for_learning(results, detected_mood)
+            pick_key = (detected_mood, st.session_state.get("mood_pick_seed", 0))
+            if st.session_state.get("mood_pick_key") != pick_key:
+                # new batch: remember what the previous one showed so it's avoided
+                st.session_state["mood_prev_titles"] = st.session_state.get("mood_shown_titles", [])
+                st.session_state["mood_pick_key"] = pick_key
+            picked = _pick_varied(
+                matches,
+                NUM,
+                seed=zlib.crc32(f"{pick_key[0]}:{pick_key[1]}".encode()),
+                recent_titles=set(st.session_state.get("mood_prev_titles", [])),
+            )
+            st.session_state["mood_shown_titles"] = picked["title"].astype(str).tolist()
+            results = rerank_results_for_learning(picked.to_dict(orient="records"), detected_mood)
     else:
         results = []
 else:

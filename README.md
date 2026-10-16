@@ -48,42 +48,19 @@ python3 -m src.personalization_model --status
 The model artifact is written to `data/personalization_model.pkl` and is used
 by the Streamlit re-ranking flow.
 
-### Train emotion model
+### Mood detection
 
-Train a FER-style face-emotion CNN and save it to `models/emotion_model.h5`.
-This path is auto-detected by `src/emotion_detection.py`.
+Mood is detected from the webcam with two pretrained ONNX models in `models/`
+(no training needed):
 
-Expected data layout:
+- **Face detection:** [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
+  via OpenCV's `FaceDetectorYN`
+- **Emotion:** [HSEmotion](https://github.com/HSE-asavchenko/face-emotion-recognition)
+  EfficientNet-B2 (7 classes, trained on AffectNet), run with `onnxruntime`
 
-```text
-data/fer2013/
-  train/
-    angry/ disgust/ fear/ happy/ sad/ surprise/ neutral/
-  test/
-    angry/ disgust/ fear/ happy/ sad/ surprise/ neutral/
-```
-
-Train + evaluate:
-
-```bash
-python3 -m src.train_emotion_model --epochs 40 --batch-size 64
-```
-
-Outputs:
-- model: `models/emotion_model.h5`
-- metrics JSON: `data/emotion_metrics.json`
-- confusion matrix CSV: `data/emotion_confusion_matrix.csv`
-
-Prepare FER data first (choose one mode):
-
-```bash
-# Mode 1: import from FER CSV (emotion,pixels,Usage)
-python3 -m src.import_fer_dataset --csv /ABS/PATH/fer2013.csv
-
-# Mode 2: import from existing split dirs
-# source root should contain train/ and test/ with class subfolders
-python3 -m src.import_fer_dataset --source-root /ABS/PATH/fer2013
-```
+The 7 emotions map to the app's 6 moods (see `EMOTION_TO_MOOD` in
+`src/emotion_detection.py`). The HSEmotion weights were trained on AffectNet,
+which is licensed for non-commercial research use.
 
 ### Import large feedback datasets
 
