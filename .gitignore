@@ -17,12 +17,16 @@ build/
 logs/
 *.csv
 
-# Generated cache artifacts
-data/cache/tfidf_matrix.npy
-data/cache/tfidf_sim.npy
-data/cache/tfidf_vectorizer.pkl
-data/cache/embeddings.npy
-data/cache/emb_sim.npy
+# Generated cache artifacts (rebuilt on startup)
+data/cache/
+
+# Runtime state the app writes as it runs; personal to each user
+data/video_sources.json
+data/ui_test_results.json
+data/user_learning.json
+data/personalization_model.pkl
+data/feedback_events.jsonl
+data/.last_daily_scrape_ts
 
 # Backup files
 *.bak

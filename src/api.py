@@ -14,8 +14,8 @@ from src.config import (
     SCRAPER_MAX_PER_RUN,
     ENABLE_AUTO_SCRAPER,
 )
-from src.data__loader import append_movie, load_movies
-from src.recomender import build_index, recommend_by_genre, recommend_by_title
+from src.data_loader import append_movie, load_movies
+from src.recommender import build_index, recommend_by_genre, recommend_by_title
 from src.scraper import scrape_top_n_movies
 from src.user_store import personalization_status, train_personalization_now
 from src.emotion_detection import detect_emotion_from_bytes

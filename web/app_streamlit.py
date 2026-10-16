@@ -22,8 +22,8 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 from src.config import TMDB_API_KEY as DEFAULT_TMDB_KEY
-from src.data__loader import load_movies
-from src.recomender import MOOD_TO_GENRES
+from src.data_loader import load_movies
+from src.recommender import MOOD_TO_GENRES
 from src.scraper import scrape_top_n_movies
 from src.user_store import (
     learning_progress,

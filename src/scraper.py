@@ -16,7 +16,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.config import TMDB_API_KEY, DATA_PATH
-from src.data__loader import append_movie
+from src.data_loader import append_movie
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 
@@ -215,7 +215,7 @@ def scrape_top_n_movies(
             logger.info("No new movies to append to %s", out_path)
         else:
             try:
-                from src.data__loader import append_bulk
+                from src.data_loader import append_bulk
                 append_bulk(new_rows, path=out_path)
                 logger.info("Appended %d new movies to %s", len(new_rows), out_path)
             except Exception as e:
