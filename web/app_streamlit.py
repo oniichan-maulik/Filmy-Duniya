@@ -10,6 +10,8 @@ import re
 import sys
 import time
 from urllib.parse import quote_plus
+import zlib
+import numpy as np
 import pandas as pd
 
 # Ensure project root is on sys.path so `src` imports work when Streamlit
@@ -667,6 +669,25 @@ def _apply_content_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df[mt.isin(allowed)]
 
 
+def _pick_varied(df: pd.DataFrame, n: int, seed: int, recent_titles: set[str]) -> pd.DataFrame:
+    """Pick n rows at random, favoring higher ratings and avoiding the last batch.
+
+    The same seed gives the same pick, so the list only changes when the caller
+    changes the seed (on "Re-check mood"), not on every Streamlit rerun.
+    """
+    if len(df) <= n:
+        return df
+    rating = pd.to_numeric(df["rating"], errors="coerce").fillna(0.0).clip(0, 10).to_numpy()
+    # each rating point makes a title ~2.7x likelier; tuned so picks average ~8/10
+    # while consecutive batches share only ~4 of 30 titles
+    weights = np.exp(rating - 10.0)
+    shown_last = df["title"].fillna("").astype(str).isin(recent_titles).to_numpy()
+    weights = np.where(shown_last, weights * 0.25, weights)
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(df), size=n, replace=False, p=weights / weights.sum())
+    return df.iloc[idx]
+
+
 def _sort_matches_by_rating(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -1142,8 +1163,10 @@ if mode == "Mood Based":
             "Mood scanning paused while you search or filter genres. "
             "Clear them to see mood suggestions."
         )
+    st.session_state.setdefault("mood_pick_seed", int(time.time()))
     if rescan_clicked:
         should_scan = True
+        st.session_state["mood_pick_seed"] += 1
     if should_scan:
         st.session_state["last_private_scan_ts"] = now
         try:
@@ -1210,9 +1233,19 @@ elif mode == "Mood Based" and detected_mood:
         if matches.empty:
             results = []
         else:
-            matches = _sort_matches_by_rating(matches)
-            results = matches.head(NUM).to_dict(orient="records")
-            results = rerank_results_for_learning(results, detected_mood)
+            pick_key = (detected_mood, st.session_state.get("mood_pick_seed", 0))
+            if st.session_state.get("mood_pick_key") != pick_key:
+                # new batch: remember what the previous one showed so it's avoided
+                st.session_state["mood_prev_titles"] = st.session_state.get("mood_shown_titles", [])
+                st.session_state["mood_pick_key"] = pick_key
+            picked = _pick_varied(
+                matches,
+                NUM,
+                seed=zlib.crc32(f"{pick_key[0]}:{pick_key[1]}".encode()),
+                recent_titles=set(st.session_state.get("mood_prev_titles", [])),
+            )
+            st.session_state["mood_shown_titles"] = picked["title"].astype(str).tolist()
+            results = rerank_results_for_learning(picked.to_dict(orient="records"), detected_mood)
     else:
         results = []
 else:
