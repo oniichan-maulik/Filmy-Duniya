@@ -32,6 +32,26 @@ logger = logging.getLogger("filmy_duniya.ui")
 
 GRID_SIZE = 18  # three rows of six
 GRID_COLUMNS = 6
+SHELF_SIZE = 15
+GENRE_PAGE_STEP = 24  # four rows of six per "Show more"
+# Browse genres, each a family of catalogue tags: TV shows use "Action & Adventure"
+# and "Sci-Fi & Fantasy", so matching is a case-insensitive substring test.
+BROWSE_GENRES = {
+    "Action": ["Action"],
+    "Adventure": ["Adventure"],
+    "Animation": ["Animation"],
+    "Comedy": ["Comedy"],
+    "Crime": ["Crime"],
+    "Drama": ["Drama"],
+    "Family": ["Family", "Kids"],
+    "Fantasy": ["Fantasy"],
+    "Horror": ["Horror"],
+    "Mystery": ["Mystery"],
+    "Romance": ["Romance"],
+    "Sci-Fi": ["Science Fiction", "Sci-Fi"],
+    "Thriller": ["Thriller"],
+}
+HOME_SHELVES = ["Action", "Comedy", "Drama", "Thriller", "Sci-Fi", "Animation"]
 PLACEHOLDER_POSTER = "https://via.placeholder.com/500x750?text=No+poster"
 WATCHLIST_PATH = repo_root / "data" / "watchlist.json"
 
@@ -159,13 +179,15 @@ st.markdown(
     /* Streamlit styles h1/h2 itself; the display face has to win */
     .stApp .stMarkdown :is(h1, h2).hero-line,
     .stApp .stMarkdown :is(h1, h2).detail-title,
-    .stApp .stMarkdown :is(h1, h2).grid-heading {
+    .stApp .stMarkdown :is(h1, h2).grid-heading,
+    .stApp .stMarkdown h2.shelf-heading {
         font-family: var(--font-display) !important; font-weight: 400 !important; padding: 0 !important;
         font-size: var(--h-size) !important; line-height: var(--h-lh) !important; letter-spacing: var(--h-track) !important;
     }
     .hero-line { --h-size: clamp(3rem, 8vw, 6.5rem); --h-lh: 0.98; --h-track: -0.04em; }
     .detail-title { --h-size: clamp(2.5rem, 5vw, 4.25rem); --h-lh: 1; --h-track: -0.035em; }
     .grid-heading { --h-size: clamp(2rem, 4vw, 3rem); --h-lh: 1.05; --h-track: -0.03em; }
+    .shelf-heading { --h-size: clamp(1.5rem, 2.6vw, 2rem); --h-lh: 1.1; --h-track: -0.025em; margin: 0 !important; }
     @keyframes enter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
     /* mood pills */
@@ -178,13 +200,16 @@ st.markdown(
     [data-testid="stButtonGroup"] button:hover { border-color: var(--ink); background: var(--surface); transform: translateY(-1px); }
     [data-testid="stButtonGroup"] button:active { transform: translateY(1px) scale(.98); }
     [data-testid="stButtonGroup"] button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none; }
-    [data-testid="stButtonGroup"] button[kind="pillsActive"] {
-        background: var(--mood); border-color: var(--mood); color: var(--accent-ink);
+    /* Streamlit 1.5x marks the chosen pill kind="pillsActive"; 1.6x uses data-selected */
+    [data-testid="stButtonGroup"] button:is([kind="pillsActive"], [data-selected="true"]) {
+        /* !important: Streamlit's own selected-pill rule is more specific */
+        background: var(--mood) !important; border-color: var(--mood) !important; color: var(--accent-ink) !important;
     }
     [data-testid="stButtonGroup"] button p { font-size: 1rem; }
     /* Scan again sits on the right content edge, under Watchlist */
     [class*="st-key-hero-"] [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] { align-items: flex-end; }
     .stApp .stMarkdown h1.detail-title { margin: 0 0 var(--s2) !important; }
+    .stApp .stMarkdown h1.grid-heading { margin-bottom: var(--s2) !important; }
     .stApp .stMarkdown p.hero-sub { margin: var(--s3) 0 var(--s4) !important; }
     .st-key-topbar [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
 
@@ -254,6 +279,31 @@ st.markdown(
     }
     @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
+
+    /* browse shelves: one row per list that scrolls sideways; the cut-off last
+       poster shows there is more. Kept last so it wins over the grid rules above. */
+    [class*="st-key-shelf-"] { margin-top: var(--s6); gap: var(--s2); }
+    [class*="st-key-shelfhead-"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; }
+    [class*="st-key-shelfhead-"] [data-testid="stColumn"] { min-width: 0 !important; }
+    [class*="st-key-shelfhead-"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+    [class*="st-key-shelfhead-"] [data-testid="stColumn"]:last-child { flex: 0 0 auto !important; width: auto !important; }
+    [class*="st-key-shelf-"] [data-testid="stHorizontalBlock"]:has([class*="st-key-card-"]) {
+        flex-wrap: nowrap !important; overflow-x: auto; overflow-y: hidden;
+        gap: var(--s3); padding: 6px 6px var(--s2); margin: 0 -6px;
+        scroll-snap-type: x proximity; scroll-padding-inline: 6px; overscroll-behavior-x: contain;
+        scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+    }
+    [class*="st-key-shelf-"] [data-testid="stHorizontalBlock"]:has([class*="st-key-card-"]) > [data-testid="stColumn"] {
+        flex: 0 0 160px !important; min-width: 160px !important; width: 160px !important; scroll-snap-align: start;
+    }
+    .st-key-genre-more { margin-top: var(--s2); }
+    @media (max-width: 640px) {
+        [class*="st-key-shelf-"] { margin-top: var(--s4); }
+        [class*="st-key-shelf-"] [data-testid="stHorizontalBlock"]:has([class*="st-key-card-"]) { gap: var(--s2); }
+        [class*="st-key-shelf-"] [data-testid="stHorizontalBlock"]:has([class*="st-key-card-"]) > [data-testid="stColumn"] {
+            flex: 0 0 136px !important; min-width: 136px !important; width: 136px !important;
+        }
     }
     </style>
     """,
@@ -337,8 +387,36 @@ def _pick_varied(df: pd.DataFrame, n: int, seed: int, avoid: set[str]) -> pd.Dat
     return df.iloc[idx]
 
 
-def mood_picks(mood: str) -> list[dict]:
+@st.cache_data(ttl=10 * 60, show_spinner=False)
+def catalogue() -> pd.DataFrame:
+    """The catalogue, read once per ten minutes instead of on every rerun."""
     df = load_movies()
+    for col in ("rating", "popularity"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def _top(df: pd.DataFrame, by: str, limit: Optional[int]) -> list[dict]:
+    if df.empty or by not in df.columns:
+        return []
+    out = df.sort_values(by, ascending=False, na_position="last").drop_duplicates("title")
+    return (out if limit is None else out.head(limit)).to_dict(orient="records")
+
+
+def trending(limit: int = SHELF_SIZE) -> list[dict]:
+    return _top(catalogue(), "popularity", limit)
+
+
+def genre_titles(genre: str, by: str = "popularity", limit: Optional[int] = None) -> list[dict]:
+    df = catalogue()
+    if df.empty or genre not in BROWSE_GENRES:
+        return []
+    return _top(df[_genre_mask(df, BROWSE_GENRES[genre])], by, limit)
+
+
+def mood_picks(mood: str) -> list[dict]:
+    df = catalogue()
     if df.empty:
         return []
     matches = df[_genre_mask(df, MOOD_TO_GENRES.get(mood, []))]
@@ -360,7 +438,7 @@ def mood_picks(mood: str) -> list[dict]:
 
 
 def search_titles(query: str) -> list[dict]:
-    df = load_movies()
+    df = catalogue()
     if df.empty:
         return []
     hits = df[df["title"].fillna("").str.contains(query, case=False, regex=False)].copy()
@@ -499,8 +577,33 @@ def _on_scan_again() -> None:
 # Navigation
 # --------------------------------------------------------------------------
 def go(view: str, movie: Optional[dict] = None) -> None:
+    if view == "movie":
+        # Back returns to the list the film was opened from
+        st.session_state["return_view"] = st.session_state.get("view", "home")
     st.session_state["view"] = view
     st.session_state["movie"] = movie
+
+
+def go_back() -> None:
+    back = st.session_state.get("return_view", "home")
+    go(back if back in ("home", "genre", "watchlist") else "home")
+
+
+def go_genre(genre: str) -> None:
+    st.session_state["genre"] = genre
+    st.session_state["genre_limit"] = GENRE_PAGE_STEP
+    go("genre")
+
+
+def _on_genre_pick() -> None:
+    picked = st.session_state.get("genre_pick")
+    if picked:  # clicking the selected genre again keeps it
+        st.session_state["genre"] = picked
+        st.session_state["genre_limit"] = GENRE_PAGE_STEP
+
+
+def _show_more() -> None:
+    st.session_state["genre_limit"] = st.session_state.get("genre_limit", GENRE_PAGE_STEP) + GENRE_PAGE_STEP
 
 
 def _clear_search() -> None:
@@ -523,20 +626,50 @@ def poster_grid(movies: list[dict], key_prefix: str, label: Optional[str] = None
         row = movies[start:start + GRID_COLUMNS]
         cols = st.columns(GRID_COLUMNS)
         for col, movie in zip(cols, row):
-            title = _text(movie, "title", "Untitled")
-            uid = f"{key_prefix}-{zlib.crc32(_movie_key(movie).encode())}"
-            with col, st.container(key=f"card-{uid}"):
-                img = poster_url(title, movie.get("poster_path"))
-                st.markdown(
-                    f"<div class='poster-frame'><img class='poster' src='{html.escape(img, quote=True)}' "
-                    f"alt='Poster for {html.escape(title, quote=True)}' loading='lazy'></div>",
-                    unsafe_allow_html=True,
+            with col:
+                poster_card(movie, key_prefix)
+
+
+def poster_card(movie: dict, key_prefix: str) -> None:
+    title = _text(movie, "title", "Untitled")
+    uid = f"{key_prefix}-{zlib.crc32(_movie_key(movie).encode())}"
+    with st.container(key=f"card-{uid}"):
+        img = poster_url(title, movie.get("poster_path"))
+        st.markdown(
+            f"<div class='poster-frame'><img class='poster' src='{html.escape(img, quote=True)}' "
+            f"alt='Poster for {html.escape(title, quote=True)}' loading='lazy'></div>",
+            unsafe_allow_html=True,
+        )
+        st.button(title, key=f"open-{uid}", on_click=go, args=("movie", movie))
+        genre = _text(movie, "genres").split("|")[0]
+        rating = _rating_text(movie)
+        meta = f"{genre}, {rating}" if genre and rating else genre or rating
+        st.markdown(f"<div class='card-meta'>{html.escape(meta)}</div>", unsafe_allow_html=True)
+
+
+def poster_shelf(heading: str, movies: list[dict], slug: str, genre: Optional[str] = None) -> None:
+    """A titled row of posters that scrolls sideways; a genre shelf links to its full page."""
+    if not movies:
+        return
+    with st.container(key=f"shelf-{slug}"):
+        with st.container(key=f"shelfhead-{slug}"):
+            head, more = st.columns([4, 1], vertical_alignment="center")
+            head.markdown(f"<h2 class='shelf-heading'>{html.escape(heading)}</h2>", unsafe_allow_html=True)
+            if genre:
+                more.button(
+                    "See all", key=f"all-{slug}", on_click=go_genre, args=(genre,),
+                    help=f"Every {genre.lower()} title in the catalogue",
                 )
-                st.button(title, key=f"open-{uid}", on_click=go, args=("movie", movie))
-                genre = _text(movie, "genres").split("|")[0]
-                rating = _rating_text(movie)
-                meta = f"{genre}, {rating}" if genre and rating else genre or rating
-                st.markdown(f"<div class='card-meta'>{html.escape(meta)}</div>", unsafe_allow_html=True)
+        cols = st.columns(len(movies))
+        for col, movie in zip(cols, movies):
+            with col:
+                poster_card(movie, f"shelf-{slug}")
+
+
+def render_browse() -> None:
+    poster_shelf("Trending now", trending(), "trending")
+    for genre in HOME_SHELVES:
+        poster_shelf(genre, genre_titles(genre, limit=SHELF_SIZE), genre.lower().replace("-", ""), genre)
 
 
 def render_topbar() -> None:
@@ -625,16 +758,42 @@ def render_home() -> None:
                 unsafe_allow_html=True,
             )
 
-    if not mood:
+    if mood:
+        picks = mood_picks(mood)
+        if picks:
+            poster_grid(picks, "mood", f"Films for a {mood} mood")
+        else:
+            st.markdown(
+                "<p class='empty'>Nothing in the catalogue matches this mood yet. Try another one.</p>",
+                unsafe_allow_html=True,
+            )
+    render_browse()
+
+
+def render_genre() -> None:
+    genre = st.session_state.get("genre")
+    if genre not in BROWSE_GENRES:
+        genre = HOME_SHELVES[0]
+        st.session_state["genre"] = genre
+    st.button("Back", key="back-genre", icon=":material/arrow_back:", on_click=go, args=("home",))
+    st.markdown(f"<h1 class='grid-heading'>{html.escape(genre)}</h1>", unsafe_allow_html=True)
+    # keep the pills on the genre shown, including after a film page and back
+    st.session_state["genre_pick"] = genre
+    st.pills(
+        "Genre",
+        options=list(BROWSE_GENRES),
+        key="genre_pick",
+        on_change=_on_genre_pick,
+        label_visibility="collapsed",
+    )
+    titles = genre_titles(genre, by="rating")
+    limit = int(st.session_state.get("genre_limit", GENRE_PAGE_STEP))
+    if not titles:
+        st.markdown("<p class='empty'>No titles in this genre yet. Pick another one.</p>", unsafe_allow_html=True)
         return
-    picks = mood_picks(mood)
-    if picks:
-        poster_grid(picks, "mood", f"Films for a {mood} mood")
-    else:
-        st.markdown(
-            "<p class='empty'>Nothing in the catalogue matches this mood yet. Try another one.</p>",
-            unsafe_allow_html=True,
-        )
+    poster_grid(titles[:limit], "genre", f"{genre} titles, best rated first")
+    if len(titles) > limit:
+        st.button(f"Show more {genre.lower()}", key="genre-more", on_click=_show_more)
 
 
 def render_watchlist() -> None:
@@ -652,7 +811,7 @@ def render_watchlist() -> None:
 
 def render_movie(movie: dict) -> None:
     title = _text(movie, "title", "Untitled")
-    st.button("Back", key="back-movie", icon=":material/arrow_back:", on_click=go, args=("home",))
+    st.button("Back", key="back-movie", icon=":material/arrow_back:", on_click=go_back)
     left, right = st.container(key="film").columns([1, 2.2], gap="large")
     with left:
         img = poster_url(title, movie.get("poster_path"), size="w780")
@@ -726,5 +885,7 @@ if view == "movie" and st.session_state.get("movie"):
     render_movie(st.session_state["movie"])
 elif view == "watchlist":
     render_watchlist()
+elif view == "genre":
+    render_genre()
 else:
     render_home()
