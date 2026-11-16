@@ -1,12 +1,12 @@
 [client]
 # Hide the Deploy button and developer options from the top-right menu
 toolbarMode = "minimal"
+showSidebarNavigation = false
 
 [theme]
-# Matches the CSS tokens in web/app_streamlit.py (soot ground, lime accent)
+# Palette "plum-black-pink" (taste-skill); keep in sync with the CSS tokens in web/app_streamlit.py
 base = "dark"
-primaryColor = "#dafa9c"
-backgroundColor = "#0f0f0f"
-secondaryBackgroundColor = "#1a1a1a"
+primaryColor = "#ff488b"
+backgroundColor = "#0d060b"
+secondaryBackgroundColor = "#1b0e17"
 textColor = "#ffffff"
-baseRadius = "full"

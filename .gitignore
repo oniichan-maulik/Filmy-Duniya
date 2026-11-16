@@ -22,6 +22,7 @@ data/cache/
 
 # Runtime state the app writes as it runs; personal to each user
 data/video_sources.json
+data/watchlist.json
 data/ui_test_results.json
 data/user_learning.json
 data/personalization_model.pkl
