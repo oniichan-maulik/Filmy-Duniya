@@ -25,19 +25,18 @@ streamlit run web/app_streamlit.py
 
 ### Tests
 
-Backend/unit tests currently consist of the Streamlit UI smoke test.
-To run it, start the backend + frontend locally and execute:
+`pytest` runs the unit tests for the personalization model and the feedback
+importer. The Playwright UI smoke test is skipped by default, so the suite
+passes where browsers are unavailable. To run it, start the Streamlit UI
+locally, then:
 
 ```bash
 RUN_UI_TESTS=1 pytest
 ```
 
-By default `pytest` will skip the Playwright test so the suite succeeds
-in CI environments where browsers are unavailable.
-
 ### Train personalization model
 
-Feedback actions (ratings/favorites) are stored in `data/feedback_events.jsonl`.
+Feedback actions (likes, dislikes and watchlist saves) are stored in `data/feedback_events.jsonl`.
 Train the personalization ranker from those events:
 
 ```bash

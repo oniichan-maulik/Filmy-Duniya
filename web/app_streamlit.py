@@ -2,6 +2,8 @@
 
 import html
 import json
+import logging
+import os
 import sys
 import time
 import zlib
@@ -26,6 +28,7 @@ from src.scraper import scrape_top_n_movies
 from src.user_store import record_feedback, rerank_results_for_learning
 
 st.set_page_config(page_title="Filmy Duniya", layout="wide")
+logger = logging.getLogger("filmy_duniya.ui")
 
 GRID_SIZE = 18  # three rows of six
 GRID_COLUMNS = 6
@@ -385,8 +388,12 @@ def _run_daily_scraper() -> None:
         lock.write_text(str(now), encoding="utf-8")
         scrape_top_n_movies(n=400, append=True, max_per_run=200, include_tv=True, force=False)
         stamp.write_text(str(now), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - a refresh failure must never take the UI down
+        logger.warning("Daily scrape failed, retrying in an hour: %s", exc)
+        try:
+            stamp.write_text(str(now - 86400 + 3600), encoding="utf-8")
+        except OSError:
+            pass
     finally:
         lock.unlink(missing_ok=True)
 
@@ -405,13 +412,23 @@ def _load_watchlist() -> list[dict]:
 def _save_watchlist(items: list[dict]) -> None:
     try:
         WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        WATCHLIST_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        tmp = WATCHLIST_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        os.replace(tmp, WATCHLIST_PATH)
     except OSError as exc:
         st.toast(f"Couldn’t save your watchlist: {exc}")
 
 
+def _text(movie: dict, field: str, default: str = "") -> str:
+    """A movie field as clean text. load_movies keeps gaps as NaN, which is truthy and prints "nan"."""
+    value = movie.get(field)
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return default
+    return str(value).strip() or default
+
+
 def _movie_key(movie: dict) -> str:
-    return str(movie.get("movie_id") or movie.get("title") or "")
+    return _text(movie, "movie_id") or _text(movie, "title")
 
 
 def in_watchlist(movie: dict) -> bool:
@@ -419,15 +436,26 @@ def in_watchlist(movie: dict) -> bool:
     return any(_movie_key(m) == key for m in st.session_state["watchlist"])
 
 
+def _feedback(movie: dict, **signal) -> bool:
+    """Record a like, dislike or save for the ranker; a failed write is reported, never fatal."""
+    try:
+        record_feedback(mood=st.session_state.get("mood"), movie=movie, **signal)
+        return True
+    except OSError as exc:
+        logger.warning("Couldn't record feedback: %s", exc)
+        st.toast("Couldn’t save that to your taste profile. Check the data folder is writable.")
+        return False
+
+
 def toggle_watchlist(movie: dict) -> None:
     items = st.session_state["watchlist"]
     if in_watchlist(movie):
         items = [m for m in items if _movie_key(m) != _movie_key(movie)]
-        st.toast(f"Removed {movie.get('title')} from your watchlist")
+        st.toast(f"Removed {_text(movie, 'title', 'the film')} from your watchlist")
     else:
         items = items + [movie]
-        record_feedback(mood=st.session_state.get("mood"), movie=movie, favorite=True)
-        st.toast(f"Saved {movie.get('title')} to your watchlist")
+        _feedback(movie, favorite=True)
+        st.toast(f"Saved {_text(movie, 'title', 'the film')} to your watchlist")
     st.session_state["watchlist"] = items
     _save_watchlist(items)
 
@@ -439,8 +467,9 @@ def scan_mood() -> None:
     """Read the mood from the webcam; on failure, leave a note and keep the old mood."""
     try:
         details = detect_face_mood_backend()
-    except (RuntimeError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 - camera, OpenCV or model failures all fall back to the picker
         # surface the reason; failing silently once hid a broken face detector
+        logger.warning("Mood scan failed: %s", exc)
         st.session_state["scan_note"] = f"The camera couldn’t be read ({exc}). Pick a mood instead."
         return
     if not details or not details.get("mood"):
@@ -494,7 +523,7 @@ def poster_grid(movies: list[dict], key_prefix: str, label: Optional[str] = None
         row = movies[start:start + GRID_COLUMNS]
         cols = st.columns(GRID_COLUMNS)
         for col, movie in zip(cols, row):
-            title = str(movie.get("title") or "Untitled")
+            title = _text(movie, "title", "Untitled")
             uid = f"{key_prefix}-{zlib.crc32(_movie_key(movie).encode())}"
             with col, st.container(key=f"card-{uid}"):
                 img = poster_url(title, movie.get("poster_path"))
@@ -504,7 +533,7 @@ def poster_grid(movies: list[dict], key_prefix: str, label: Optional[str] = None
                     unsafe_allow_html=True,
                 )
                 st.button(title, key=f"open-{uid}", on_click=go, args=("movie", movie))
-                genre = str(movie.get("genres") or "").split("|")[0]
+                genre = _text(movie, "genres").split("|")[0]
                 rating = _rating_text(movie)
                 meta = f"{genre}, {rating}" if genre and rating else genre or rating
                 st.markdown(f"<div class='card-meta'>{html.escape(meta)}</div>", unsafe_allow_html=True)
@@ -566,6 +595,10 @@ def render_home() -> None:
         st.markdown(f"<h1 class='hero-line'>{line}</h1><p class='hero-sub'>{sub}</p>", unsafe_allow_html=True)
 
         pills, scan = st.columns([5, 1.2], vertical_alignment="center")
+        # Streamlit drops a widget's state while it's off screen (film page, watchlist,
+        # search), so re-seed the pills from the mood when the viewer comes back.
+        if "mood_pick" not in st.session_state and mood in MOOD_COPY:
+            st.session_state["mood_pick"] = mood
         with pills:
             st.pills(
                 "Mood",
@@ -618,7 +651,7 @@ def render_watchlist() -> None:
 
 
 def render_movie(movie: dict) -> None:
-    title = str(movie.get("title") or "Untitled")
+    title = _text(movie, "title", "Untitled")
     st.button("Back", key="back-movie", icon=":material/arrow_back:", on_click=go, args=("home",))
     left, right = st.container(key="film").columns([1, 2.2], gap="large")
     with left:
@@ -630,17 +663,17 @@ def render_movie(movie: dict) -> None:
         )
     with right:
         st.markdown(f"<h1 class='detail-title'>{html.escape(title)}</h1>", unsafe_allow_html=True)
-        genres = str(movie.get("genres") or "").replace("|", ", ")
+        genres = _text(movie, "genres").replace("|", ", ")
         rating = _rating_text(movie)
         meta = f"{genres}. Rated {rating} out of 10" if genres and rating else genres or (f"Rated {rating} out of 10" if rating else "")
         if meta:
             st.markdown(f"<div class='detail-meta'>{html.escape(meta)}</div>", unsafe_allow_html=True)
-        about = str(movie.get("description") or "").strip()
+        about = _text(movie, "description")
         if not about:
             about = str((_tmdb_search(title) or {}).get("overview") or "").strip()
         if about:
             st.markdown(f"<p class='detail-body'>{html.escape(about)}</p>", unsafe_allow_html=True)
-        director = str(movie.get("director") or "").strip()
+        director = _text(movie, "director")
         if director:
             st.markdown(f"<p class='detail-meta'>Directed by {html.escape(director)}</p>", unsafe_allow_html=True)
 
@@ -656,15 +689,14 @@ def render_movie(movie: dict) -> None:
                 args=(movie,),
             )
         # Likes and dislikes train the personal ranker behind the mood picks.
-        mood = st.session_state.get("mood")
         with liked:
             if st.button("I liked it", key="liked", icon=":material/thumb_up:"):
-                record_feedback(mood=mood, movie=movie, rating=5.0)
-                st.toast("Got it. You’ll see more like this.")
+                if _feedback(movie, rating=5.0):
+                    st.toast("Got it. You’ll see more like this.")
         with disliked:
             if st.button("Not for me", key="disliked", icon=":material/thumb_down:"):
-                record_feedback(mood=mood, movie=movie, rating=1.0)
-                st.toast("Got it. You’ll see less like this.")
+                if _feedback(movie, rating=1.0):
+                    st.toast("Got it. You’ll see less like this.")
 
         trailer = trailer_url(title)
         if trailer:

@@ -3,8 +3,7 @@ import pandas as pd
 from src.data_loader import load_movies
 from src.preprocess import build_soup
 from src.vectorize import vectorize
-from src.similarity import compute_similarity_from_matrix, load_similarity
-from src.config import USE_EMBEDDINGS
+from src.similarity import compute_similarity_from_matrix
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Mood to genre mapping used by UI/API mood flows. Names must be TMDB genres:
