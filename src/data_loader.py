@@ -1,10 +1,38 @@
-import pandas as pd
-from src.config import DATA_PATH
-from pathlib import Path
+import os
 import threading
+import time
+import uuid
+from pathlib import Path
+
+import pandas as pd
+
+from src.config import DATA_PATH
 
 # simple lock to protect concurrent writes to the CSV
 _CSV_LOCK = threading.Lock()
+
+
+def _write_csv_atomic(df: pd.DataFrame, p: Path) -> None:
+    """Write via a temp file + rename so readers never see a half-written CSV."""
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    df.to_csv(tmp, index=False)
+    # On Windows the rename fails while another reader has the file open; retry briefly.
+    for attempt in range(10):
+        try:
+            os.replace(tmp, p)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.05)
+
+
+def save_movies(df: pd.DataFrame, path=DATA_PATH) -> None:
+    """Replace the whole catalog CSV with `df` (atomically, under the CSV lock)."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with _CSV_LOCK:
+        _write_csv_atomic(df, p)
 
 def load_movies(path=DATA_PATH):
     df = pd.read_csv(path)
@@ -30,7 +58,7 @@ def load_movies_by_genre(genre: str, top_n: int = 20, sort_by: str = "rating", p
         df_sorted = df.sort_values(by=sort_by, ascending=False)
         return df_sorted.head(top_n).to_dict(orient="records")
 
-    mask = df['genres'].fillna("").str.lower().str.contains(str(genre).lower())
+    mask = df['genres'].fillna("").str.lower().str.contains(str(genre).lower(), regex=False)
     df_filtered = df[mask]
     if df_filtered.empty:
         return []
@@ -59,6 +87,10 @@ def append_movie(movie: dict, path=DATA_PATH):
 
         # create a single-row df for the incoming movie
         row = {k: (v if v is not None else "") for k, v in movie.items()}
+        # Manually added movies have no TMDB id; give each a unique one so the
+        # movie_id dedupe below doesn't collapse them all into one row.
+        if 'movie_id' in df.columns and not str(row.get('movie_id', '') or '').strip():
+            row['movie_id'] = f"manual-{uuid.uuid4().hex[:12]}"
         new_df = pd.DataFrame([row])
 
         # if df empty just write header+row
@@ -75,7 +107,7 @@ def append_movie(movie: dict, path=DATA_PATH):
         else:
             out = out.drop_duplicates(subset=['title'])
 
-        out.to_csv(p, index=False)
+        _write_csv_atomic(out, p)
         return out.reset_index(drop=True)
 
 
@@ -108,7 +140,7 @@ def append_bulk(rows, path=DATA_PATH):
         else:
             out = out.drop_duplicates(subset=['title'])
 
-        out.to_csv(p, index=False)
+        _write_csv_atomic(out, p)
         return out.reset_index(drop=True)
 
 
@@ -116,8 +148,7 @@ def set_poster_for_title(title: str, poster_url: str, path=DATA_PATH):
     """Set the poster_path for the first matching title in the CSV.
 
     This function acquires the CSV lock, loads the CSV, updates the poster_path
-    for the matching row (matching by movie_id if present, otherwise by title
-    case-insensitive), writes the CSV back, and returns True if an update was
+    for the rows whose title matches case-insensitively, writes the CSV back, and returns True if an update was
     made or False if no matching row was found.
     """
     p = Path(path)
@@ -125,20 +156,9 @@ def set_poster_for_title(title: str, poster_url: str, path=DATA_PATH):
         if not p.exists():
             return False
         df = pd.read_csv(p)
-        updated = False
-        # try to match by title (case-insensitive)
-        if 'movie_id' in df.columns:
-            # prefer exact title match
-            mask = df['title'].astype(str).str.lower() == str(title).strip().lower()
-            if mask.any():
-                df.loc[mask, 'poster_path'] = poster_url
-                updated = True
-        else:
-            mask = df['title'].astype(str).str.lower() == str(title).strip().lower()
-            if mask.any():
-                df.loc[mask, 'poster_path'] = poster_url
-                updated = True
-
+        mask = df['title'].astype(str).str.lower() == str(title).strip().lower()
+        updated = bool(mask.any())
         if updated:
-            df.to_csv(p, index=False)
+            df.loc[mask, 'poster_path'] = poster_url
+            _write_csv_atomic(df, p)
         return bool(updated)

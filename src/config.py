@@ -2,9 +2,17 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
+
 DATA_PATH = BASE_DIR / "data" / "movies.csv"
 
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "785c5f1bd5e3e823f06abdfe6168588e")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")  # sentence-transformers
 USE_EMBEDDINGS = os.getenv("USE_EMBEDDINGS", "0") == "1"  # toggle to use SBERT
 # interval (in seconds) for background data refresh. Set to 0 to disable.

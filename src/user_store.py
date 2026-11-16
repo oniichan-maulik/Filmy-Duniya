@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
+import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+# Serialises read-modify-write of the profile across Streamlit sessions/threads.
+_PROFILE_LOCK = threading.RLock()
 
 
 def _repo_root() -> Path:
@@ -40,21 +49,30 @@ def load_user_profile() -> Dict[str, Any]:
         merged = _default_profile()
         merged.update(data)
         return merged
-    except Exception:
+    except (OSError, ValueError):
+        # Keep the unreadable file instead of letting the next save overwrite it.
+        backup = path.with_suffix(".corrupt.json")
+        logger.exception("Could not read %s; moving it to %s and starting fresh", path, backup)
+        try:
+            os.replace(path, backup)
+        except OSError:
+            pass
         return _default_profile()
 
 
 def save_user_profile(profile: Dict[str, Any]) -> None:
     path = _store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    tmp = path.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
         json.dump(profile, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def _append_feedback_event(event: Dict[str, Any]) -> None:
     p = _events_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("a", encoding="utf-8") as f:
+    with _PROFILE_LOCK, p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
@@ -81,12 +99,13 @@ def _ensure_nested_dict(d: Dict[str, Any], key: str) -> Dict[str, float]:
     return d[key]
 
 
-def record_feedback(
+def _update_profile(
     mood: Optional[str],
     movie: Dict[str, Any],
-    rating: Optional[float] = None,
-    favorite: bool = False,
-) -> None:
+    rating: Optional[float],
+    favorite: bool,
+) -> tuple[int, str, float]:
+    """Apply one feedback signal to the profile; returns (event_count, mood_key, signal)."""
     profile = load_user_profile()
     mood_key = str(mood or "").strip().lower()
     title_key = _title_key(movie)
@@ -118,7 +137,17 @@ def record_feedback(
 
     profile["feedback_events"] = int(profile.get("feedback_events", 0)) + 1
     save_user_profile(profile)
-    event_count = int(profile.get("feedback_events", 0))
+    return int(profile.get("feedback_events", 0)), mood_key, signal
+
+
+def record_feedback(
+    mood: Optional[str],
+    movie: Dict[str, Any],
+    rating: Optional[float] = None,
+    favorite: bool = False,
+) -> None:
+    with _PROFILE_LOCK:
+        event_count, mood_key, signal = _update_profile(mood, movie, rating, favorite)
 
     base_score = movie.get("score", movie.get("rating", 0.0))
     try:
@@ -152,7 +181,7 @@ def record_feedback(
 
             train_personalization_model(min_events=5)
         except Exception:
-            pass
+            logger.exception("Background personalization training failed")
 
 
 def _learning_score(movie: Dict[str, Any], mood: Optional[str], profile: Dict[str, Any]) -> float:
@@ -179,6 +208,8 @@ def rerank_results_for_learning(results: list[Dict[str, Any]], mood: Optional[st
         try:
             base_score = float(base)
         except (TypeError, ValueError):
+            base_score = 0.0
+        if math.isnan(base_score):
             base_score = 0.0
         rule_boost = _learning_score(movie, mood, profile)
         model_boost = 0.0
@@ -237,6 +268,7 @@ def train_personalization_now(min_events: int = 10) -> Dict[str, Any]:
 
         linear_out = train_personalization_model(min_events=max(5, int(min_events)))
     except Exception as exc:
+        logger.exception("Personalization training failed")
         linear_out = {"trained": False, "error": str(exc)}
 
     return {

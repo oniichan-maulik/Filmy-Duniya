@@ -1,7 +1,6 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from pathlib import Path
-import pickle
 
 CACHE = Path(__file__).resolve().parent.parent / "data" / "cache"
 CACHE.mkdir(parents=True, exist_ok=True)

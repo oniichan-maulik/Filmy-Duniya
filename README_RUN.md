@@ -47,7 +47,7 @@ Troubleshooting
 
 Auto-refresh and Adding Movies
 - The FastAPI backend supports a background periodic refresh of the in-memory index. The refresh interval is controlled by the environment variable `REFRESH_INTERVAL_SECONDS` (default 300 seconds).
-- You can trigger an immediate refresh by POSTing to `/refresh` or using the "Refresh server index now" button in the Streamlit sidebar.
+- You can trigger an immediate refresh by POSTing to `/refresh`.
 - To add a new movie programmatically, POST a JSON object with at least the `title` field to `/add_movie`. The server will append the row to `data/movies.csv` and rebuild the index.
 
 Example add-movie curl:
@@ -58,7 +58,7 @@ curl -X POST -H "Content-Type: application/json" \
 	http://127.0.0.1:8000/add_movie
 ```
 
-The Streamlit UI also has an "Add a new movie" form in the sidebar and an "Enable auto-refresh" checkbox which will poll the backend and refresh the UI on the selected interval.
+The Streamlit UI reads `data/movies.csv` directly and refreshes the catalogue from TMDB at most once a day; it has no add-movie form.
 
 Docker / docker-compose
 -----------------------
