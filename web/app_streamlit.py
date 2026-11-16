@@ -544,29 +544,10 @@ try:
     secrets_key = str(st.secrets.get("TMDB_API_KEY", "")).strip()
 except Exception:
     secrets_key = ""
-default_key = secrets_key or DEFAULT_TMDB_KEY or ""
-tmdb_input = st.sidebar.text_input("TMDB API key", type="password", value=default_key)
-TMDB_API_KEY = (tmdb_input or "").strip()
-if TMDB_API_KEY:
-    st.sidebar.success("Using TMDB for posters and ratings.")
-else:
-    st.sidebar.warning("TMDB API key missing; posters/ratings may use placeholders.")
-
-st.sidebar.header("User Sign-In")
-st.session_state.setdefault("signed_in", False)
-st.session_state.setdefault("user_email", "")
-user_email = st.sidebar.text_input("Email", value=st.session_state.get("user_email", ""))
-user_pass = st.sidebar.text_input("Password", type="password")
-if not st.session_state.get("signed_in"):
-    if st.sidebar.button("Sign in"):
-        st.session_state["signed_in"] = True
-        st.session_state["user_email"] = user_email
-        st.sidebar.success(f"Signed in as {user_email or 'guest'}")
-else:
-    st.sidebar.success(f"Signed in as {st.session_state.get('user_email','guest')}")
-    if st.sidebar.button("Sign out"):
-        st.session_state["signed_in"] = False
-        st.sidebar.info("Signed out")
+# The key is server config (.env or Streamlit secrets); never render it in the page.
+TMDB_API_KEY = (secrets_key or DEFAULT_TMDB_KEY or "").strip()
+if not TMDB_API_KEY:
+    st.sidebar.warning("No TMDB key set (TMDB_API_KEY in .env); posters and ratings may use placeholders.")
 
 st.sidebar.header("Recommendation Mode")
 mode = "Mood Based"
@@ -902,10 +883,6 @@ st.session_state.setdefault("page", "home")
 topbar_left, topbar_mid, topbar_right = st.columns([1.6, 3.4, 2.4])
 with topbar_left:
     st.markdown("<div class='brand'>Filmi<span> Duniya</span></div>", unsafe_allow_html=True)
-    if st.session_state.get("signed_in"):
-        st.caption(f"Signed in: {st.session_state.get('user_email','guest')}")
-    else:
-        st.caption("Guest mode • sign in to sync favorites")
 with topbar_mid:
     nav_cols = st.columns(3)
     nav_items = [("home", "Home"), ("trending", "Trending"), ("favorites", "Favorites")]
