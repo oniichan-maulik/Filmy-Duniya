@@ -173,7 +173,9 @@ st.set_page_config(page_title="Filmy Duniya", layout="wide")
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&family=DM+Mono:wght@400;500&display=swap');
+    /* Look dealt by taste-skill 2.5: palette soot-pale-lime (a dark screening-room ground,
+       one lime accent for actions), type Instrument Sans + DM Mono, radius round. */
     /* hide Streamlit's top toolbar (Deploy, menu) and the colored strip; keep sidebar toggle */
     [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {
         display: none !important;
@@ -182,187 +184,356 @@ st.markdown(
         background: transparent !important;
     }
     :root {
-        --bg: #05050b;
-        --panel: #0b0b15;
-        --card: #0f1024;
-        --card-2: #0d1324;
-        --accent: #9d64ff;
-        --accent-2: #6ee3ff;
-        --text: #f4f4ff;
-        --muted: #b7b9d6;
-        --stroke: #1d1d2f;
-        --glow: 0 0 28px rgba(157,100,255,0.32);
+        --bg: #0f0f0f;
+        --surface: #1a1a1a;
+        --surface-2: #232323;
+        --ink: #ffffff;
+        --muted: #a3a3a3;
+        --accent: #dafa9c;
+        --accent-ink: #0f0f0f;
+        --line: rgba(255,255,255,0.09);
+        --line-strong: rgba(255,255,255,0.22);
+        --font-display: "Instrument Sans", system-ui, sans-serif;
+        --font-text: "Instrument Sans", system-ui, sans-serif;
+        --font-mono: "DM Mono", ui-monospace, Menlo, Consolas, monospace;
+        --r-sm: 10px; --r-md: 16px; --r-lg: 24px; --r-pill: 999px;
+        --ease: cubic-bezier(.2,.8,.2,1);
+        --m-in: 150ms; --m-out: 120ms; --m-press: 90ms;
+        --m-image: 600ms; --m-image-out: 400ms;
+        /* kept for any older markup that still reads these names */
+        --text: var(--ink); --card: var(--surface); --card-2: var(--surface); --stroke: var(--line);
     }
     .stApp {
-        background:
-            radial-gradient(1200px 900px at 80% 10%, rgba(157,100,255,0.16), transparent 60%),
-            radial-gradient(900px 800px at 6% 16%, rgba(110,227,255,0.12), transparent 55%),
-            linear-gradient(180deg, #06060e, var(--bg));
-        color: var(--text);
-        font-family: "Sora", "Space Grotesk", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-text);
     }
-    h1, h2, h3, h4 {letter-spacing: 0.01em;}
+    .stApp, .stApp p, .stApp label, .stApp input, .stApp textarea, .stApp button,
+    .stMarkdown, [data-testid="stSidebar"] {
+        font-family: var(--font-text);
+    }
+    h1, h2, h3, h4,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4 {
+        font-family: var(--font-display);
+        font-weight: 500;
+        letter-spacing: -0.028em;
+        font-stretch: 96%;
+        color: var(--ink);
+    }
     .block-container {padding-top: 18px; padding-bottom: 72px;}
-    .stMarkdown, .stTextInput label, .stSlider label, .stCheckbox label {color: var(--text);}
-    .stTextInput > div > div > input {
-        background: var(--card);
-        border: 1px solid var(--stroke);
-        color: var(--text);
-        border-radius: 14px;
+    .stMarkdown, .stTextInput label, .stSlider label, .stCheckbox label {color: var(--ink);}
+    [data-testid="stCaptionContainer"], .stCaption {color: var(--muted) !important;}
+    [data-testid="stSidebar"] {background: #141414; border-right: 1px solid var(--line);}
+
+    /* fields: action border and a soft 3px ring on focus */
+    .stTextInput > div > div > input,
+    .stTextArea textarea {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        color: var(--ink);
+        border-radius: var(--r-pill);
         height: 46px;
-        padding-left: 16px;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+        padding-left: 18px;
+        transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
     }
-    .stButton button {
-        background: linear-gradient(90deg, var(--accent), var(--accent-2));
-        color: #06060e;
-        border: 0;
-        border-radius: 12px;
-        padding: 10px 16px;
-        font-weight: 700;
-        box-shadow: var(--glow);
+    .stTextArea textarea {border-radius: var(--r-md); height: auto;}
+    .stTextInput > div > div > input::placeholder {color: var(--muted);}
+    .stTextInput > div > div:focus-within,
+    .stTextInput > div > div > input:focus {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 3px rgba(218,250,156,0.18) !important;
+        outline: none;
     }
-    .stButton button:hover {filter: brightness(1.07);}
-    /* st.pills (mood picker): match the dark .pill chips; selected = accent gradient */
+
+    /* buttons: one pair. secondary = tonal, primary = lime. hover steps 1px up, press sinks */
+    .stButton button,
+    .stDownloadButton button,
+    .stFormSubmitButton button {
+        background: var(--surface-2);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: var(--r-pill);
+        min-height: 44px;
+        padding: 10px 18px;
+        font-weight: 500;
+        letter-spacing: -0.005em;
+        box-shadow: none;
+        transition: background-color var(--m-out) var(--ease), border-color var(--m-out) var(--ease),
+                    transform var(--m-out) var(--ease);
+    }
+    .stButton button *, .stDownloadButton button *, .stFormSubmitButton button * {color: inherit;}
+    .stButton button[kind="primary"],
+    .stButton button[data-testid="stBaseButton-primary"],
+    .stFormSubmitButton button[kind="primaryFormSubmit"] {
+        background: var(--accent);
+        color: var(--accent-ink);
+        border-color: var(--accent);
+    }
+    @media (hover: hover) and (pointer: fine) {
+        .stButton button:hover,
+        .stDownloadButton button:hover,
+        .stFormSubmitButton button:hover {
+            background: color-mix(in srgb, var(--surface-2) 86%, var(--ink));
+            border-color: var(--line-strong);
+            color: var(--ink);
+            transform: translateY(-1px);
+            transition-duration: var(--m-in);
+        }
+        .stButton button[kind="primary"]:hover,
+        .stButton button[data-testid="stBaseButton-primary"]:hover,
+        .stFormSubmitButton button[kind="primaryFormSubmit"]:hover {
+            background: color-mix(in srgb, var(--accent) 86%, var(--accent-ink));
+            border-color: color-mix(in srgb, var(--accent) 86%, var(--accent-ink));
+            color: var(--accent-ink);
+        }
+    }
+    .stButton button:active,
+    .stDownloadButton button:active,
+    .stFormSubmitButton button:active {
+        transform: translateY(1px) scale(.985);
+        transition-duration: var(--m-press);
+    }
+    .stButton button:focus-visible,
+    .stDownloadButton button:focus-visible,
+    .stFormSubmitButton button:focus-visible,
+    a:focus-visible {
+        outline: 2px solid var(--accent) !important;
+        outline-offset: 2px;
+        box-shadow: none !important;
+    }
+
+    /* st.pills (mood picker): tonal chips; selected = lime */
     [data-testid="stMain"] [data-testid="stButtonGroup"] button {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid var(--stroke);
+        background: var(--surface);
+        border: 1px solid var(--line);
         color: var(--muted);
+        border-radius: var(--r-pill);
+        transition: border-color var(--m-out) var(--ease), color var(--m-out) var(--ease),
+                    transform var(--m-out) var(--ease);
     }
     [data-testid="stMain"] [data-testid="stButtonGroup"] button * {color: inherit;}
-    [data-testid="stMain"] [data-testid="stButtonGroup"] button:hover {
-        border-color: rgba(157,100,255,0.5);
-        color: var(--text);
-        box-shadow: var(--glow);
+    @media (hover: hover) and (pointer: fine) {
+        [data-testid="stMain"] [data-testid="stButtonGroup"] button:hover {
+            border-color: var(--line-strong);
+            color: var(--ink);
+            transform: translateY(-1px);
+            transition-duration: var(--m-in);
+        }
     }
-    /* !important: Streamlit colors the selected pill with its red primary color */
-    [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"],
-    [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"] * {
-        background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
-        border-color: transparent !important;
-        color: #06060e !important;
-        font-weight: 700;
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button:active {
+        transform: translateY(1px) scale(.985);
+        transition-duration: var(--m-press);
+    }
+    /* !important: Streamlit colors the selected pill with its own primary color */
+    [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"] {
+        background: var(--accent) !important;
+        border-color: var(--accent) !important;
+        color: var(--accent-ink) !important;
+        font-weight: 500;
     }
     [data-testid="stMain"] [data-testid="stButtonGroup"] button[aria-checked="true"] * {
         background: transparent !important;
+        color: var(--accent-ink) !important;
     }
     [data-testid="stMain"] [data-testid="stElementContainer"]:has([data-testid="stButtonGroup"]) [data-testid="stWidgetLabel"] {
         color: var(--muted);
     }
+
+    [data-testid="stExpander"] details {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+    }
+
     .app-shell {max-width: 1220px; margin: 0 auto;}
     .topbar {
         display:flex; align-items:center; gap:14px; justify-content:space-between;
-        background: linear-gradient(90deg, rgba(17,17,30,0.92), rgba(17,18,35,0.82));
-        border:1px solid var(--stroke);
-        padding: 14px 18px; border-radius: 18px; margin-bottom: 20px;
-        backdrop-filter: blur(10px); box-shadow: var(--glow);
+        background: var(--surface);
+        border:1px solid var(--line);
+        padding: 14px 18px; border-radius: var(--r-lg); margin-bottom: 20px;
     }
-    .brand {font-size: 22px; font-weight: 800; letter-spacing: 0.04em;}
-    .brand span {color: var(--accent); text-shadow: var(--glow);}
+    .brand {
+        font-family: var(--font-display);
+        font-size: 24px; font-weight: 600; letter-spacing: -0.03em;
+        line-height: 44px;
+    }
+    .brand span {color: var(--accent);}
     .pill-nav {display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
     .pill {
-        padding:8px 12px; border-radius:12px; border:1px solid var(--stroke);
-        background: rgba(255,255,255,0.03); color: var(--muted); font-weight:600; font-size:13px;
-        transition: all 0.15s ease;
+        padding:8px 14px; border-radius: var(--r-pill); border:1px solid var(--line);
+        background: var(--surface); color: var(--muted); font-weight:500; font-size:13px;
+        transition: border-color var(--m-out) var(--ease), color var(--m-out) var(--ease);
     }
-    .pill:hover {border-color: rgba(157,100,255,0.5); color: var(--text); box-shadow: var(--glow);}
-    .pill.active {background: linear-gradient(90deg, rgba(157,100,255,0.18), rgba(110,227,255,0.12)); color: var(--text);}
+    .pill:hover {border-color: var(--line-strong); color: var(--ink);}
+    .pill.active {background: var(--accent); border-color: var(--accent); color: var(--accent-ink);}
     .search-shell {width:100%;}
     .subtext {color: var(--muted); margin: 0 0 12px 2px;}
+
+    /* watch page header */
     .hero {
-        border:1px solid var(--stroke);
-        background: linear-gradient(135deg, rgba(15,15,28,0.92), rgba(12,17,34,0.94));
-        border-radius: 22px;
+        border:1px solid var(--line);
+        background: var(--surface);
+        border-radius: var(--r-lg);
         padding: 22px;
-        box-shadow: 0 24px 60px rgba(0,0,0,0.4);
         margin-bottom: 24px;
     }
     .hero-tag {
-        display:inline-block; font-size:11px; font-weight:700; letter-spacing:0.12em;
-        text-transform:uppercase; color:#dfe2ff; background:rgba(157,100,255,0.14);
-        border:1px solid rgba(157,100,255,0.4); padding:4px 10px; border-radius:999px; margin-bottom:10px;
+        display:inline-block; font-family: var(--font-mono); font-size:12px; font-weight:500;
+        letter-spacing:0.02em; color: var(--accent-ink); background: var(--accent);
+        padding:4px 10px; border-radius: var(--r-pill); margin-bottom:10px;
     }
-    .hero-title {font-size: 34px; margin: 0 0 10px 0;}
-    .hero-meta {color: var(--muted); font-size: 13px; margin-bottom: 12px;}
+    .hero-title {
+        font-family: var(--font-display); font-size: 40px; font-weight: 500;
+        letter-spacing: -0.036em; line-height: 1.05; margin: 14px 0 10px 0;
+    }
+    .hero-meta {color: var(--muted); font-size: 14px; margin-bottom: 12px;}
     .movie-card {
-        border:1px solid var(--stroke);
-        background: linear-gradient(180deg, var(--card), var(--card-2));
-        padding:12px; border-radius:16px;
-        box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+        border:1px solid var(--line);
+        background: var(--surface);
+        padding:12px; border-radius: var(--r-md);
     }
     .movie-title {margin: 10px 0 6px 0;}
-    .section-title {font-size: 22px; margin: 10px 0 8px 0; text-transform: uppercase; letter-spacing: 0.06em;}
-    .rating-stars {display:flex; align-items:center; gap:8px; margin: 6px 0 8px 0;}
+    .section-title {
+        font-family: var(--font-display);
+        font-size: 28px; font-weight: 500; letter-spacing: -0.028em; line-height: 1.15;
+        margin: 28px 0 14px 0;
+    }
+    .rating-stars {display:flex; align-items:center; gap:10px; margin: 8px 0 10px 0;}
     .stars {letter-spacing:2px; font-size:15px;}
-    .star-on {color:#ffb703;}
-    .star-off {color:#34344c;}
-    .rating-badge {background:#0d0f1e; border:1px solid var(--stroke); padding:6px 10px; border-radius:10px; font-weight:700;}
+    .star-on {color: var(--accent);}
+    .star-off {color: #3a3a3a;}
+    .rating-badge {
+        font-family: var(--font-mono); font-size: 13px; font-weight: 500;
+        background: var(--surface-2); border:1px solid var(--line);
+        padding:5px 10px; border-radius: var(--r-pill);
+    }
+
+    /* featured banner: the poster is the picture; a neutral scrim keeps the words readable */
+    a:has(> .banner-panel) {display:block; border-radius: var(--r-lg);}
     .banner-panel {
         position: relative;
         aspect-ratio: 16 / 7;
         min-height: 360px;
-        border-radius: 22px;
-        border: 1px solid var(--stroke);
+        border-radius: var(--r-lg);
+        border: 1px solid var(--line);
         overflow: hidden;
-        margin-bottom: 16px;
-        box-shadow: 0 24px 56px rgba(0,0,0,0.45);
-        filter: brightness(1.05);
+        margin-bottom: 20px;
+        transition: transform 180ms var(--ease), border-color 180ms var(--ease);
+    }
+    @media (hover: hover) and (pointer: fine) {
+        a:hover > .banner-panel {transform: translateY(-2px); border-color: var(--line-strong);}
     }
     .banner-content {
         position: absolute;
-        left: 22px;
-        bottom: 20px;
-        max-width: 64%;
+        left: 32px;
+        bottom: 28px;
+        max-width: 58%;
     }
     .banner-kicker {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.14em;
-        color: #d9dfff;
-        margin-bottom: 6px;
-        font-weight: 800;
+        display: inline-block;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        color: var(--accent-ink);
+        background: var(--accent);
+        padding: 4px 10px;
+        border-radius: var(--r-pill);
+        margin-bottom: 14px;
     }
     .banner-title {
-        font-size: 40px;
-        line-height: 1.05;
-        margin: 0 0 8px 0;
-        text-shadow: var(--glow);
+        font-family: var(--font-display);
+        font-size: clamp(34px, 4.6vw, 64px);
+        font-weight: 500;
+        letter-spacing: -0.036em;
+        line-height: 1.0;
+        margin: 0 0 12px 0;
+        color: var(--ink);
     }
     .banner-sub {
-        color: #d1d7f5;
-        font-size: 13px;
-        line-height: 1.4;
+        color: rgba(255,255,255,0.82);
+        font-size: 16px;
+        line-height: 1.45;
+        max-width: 46ch;
     }
-    .genre-strip {
-        border: 1px solid var(--stroke);
-        background: linear-gradient(180deg, rgba(15,15,28,0.92), rgba(15,18,34,0.92));
-        border-radius: 12px;
-        padding: 8px 10px;
-        margin: 10px 0 10px 0;
-        max-height: 88px;
-        overflow-y: auto;
-    }
+    /* opened by st.markdown, so Streamlit closes it at once: it never wraps the checkboxes */
+    .genre-strip {display: none;}
+    /* multiselect tags (Content type): dark text on the lime fill */
+    [data-testid="stMultiSelectTagsContainer"] [data-tag] {background: var(--accent) !important; border-radius: var(--r-pill) !important;}
+    [data-testid="stMultiSelectTagsContainer"] [data-tag], [data-testid="stMultiSelectTagsContainer"] [data-tag] * {color: var(--accent-ink) !important;}
+    [data-testid="stMultiSelectTagsContainer"] [data-tag] svg, [data-testid="stMultiSelectTagsContainer"] [data-tag] svg * {fill: var(--accent-ink) !important;}
     .strip-title {
-        font-size: 11px;
-        color: #d9dfff;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        margin: 0 0 4px 0;
-        font-weight: 800;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--muted);
+        letter-spacing: 0.02em;
+        margin: 0 0 6px 0;
+        font-weight: 500;
     }
-    .poster-card {position:relative; border-radius:16px; overflow:hidden; border:1px solid var(--stroke); background: var(--card); box-shadow: var(--glow); max-width: 210px; margin: 0 auto;}
-    .poster-frame {position:relative;}
-    .poster-img {width:100%; border-radius:14px; object-fit:cover; aspect-ratio: 2 / 3; max-height: 280px;}
-    .poster-overlay {position:absolute; inset:0; background: linear-gradient(180deg, transparent 20%, rgba(5,5,11,0.7)); opacity:0; transition:opacity 0.2s ease;}
-    .poster-card:hover .poster-overlay {opacity:1;}
+
+    /* poster cards: a linked card lifts 2px, the poster zooms 1.03 inside its frame */
+    a:has(> .poster-card) {display:block; text-decoration:none; border-radius: var(--r-md);}
+    .poster-card {
+        position:relative; border-radius: var(--r-md); overflow:hidden;
+        border:1px solid var(--line); background: var(--surface);
+        width: 100%; margin: 0;
+        transition: transform var(--m-out) var(--ease), border-color var(--m-out) var(--ease),
+                    box-shadow var(--m-out) var(--ease);
+    }
+    .poster-frame {position:relative; overflow:hidden; border-radius: var(--r-md) var(--r-md) 0 0;}
+    .poster-img {
+        display:block; width:100%; object-fit:cover; aspect-ratio: 2 / 3;
+        transition: transform var(--m-image-out) var(--ease);
+    }
+    .poster-overlay {display:none;}
+    @media (hover: hover) and (pointer: fine) {
+        a:hover > .poster-card {
+            transform: translateY(-2px);
+            border-color: var(--line-strong);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.10);
+            transition-duration: 180ms;
+        }
+        a:hover > .poster-card .poster-img {
+            transform: scale(1.03);
+            transition-duration: var(--m-image);
+        }
+        a:hover > .poster-card .poster-title {
+            text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px;
+        }
+    }
     .poster-link {text-decoration:none; color:inherit; display:block;}
-    .poster-link:focus {outline:none;}
-    .poster-meta {padding:8px 6px 6px 4px;}
-    .poster-title {font-size:14px; font-weight:700; margin:4px 0 3px 0; color: var(--text);}   
-    .poster-sub {color: var(--muted); font-size:12px; letter-spacing:0.02em;}
-    .pill-badge {padding:4px 8px; border-radius:8px; background:rgba(255,255,255,0.04); color:var(--muted); font-size:12px; border:1px solid var(--stroke);}
+    .poster-meta {padding:10px 12px 12px 12px;}
+    .poster-title {
+        font-family: var(--font-display);
+        font-size:15px; font-weight:500; letter-spacing: -0.01em;
+        margin:0 0 4px 0; color: var(--ink);
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .poster-sub {
+        font-family: var(--font-mono);
+        color: var(--muted); font-size:12px;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .pill-badge {
+        padding:4px 10px; border-radius: var(--r-pill); background: var(--surface-2);
+        color: var(--muted); font-family: var(--font-mono); font-size:12px; border:1px solid var(--line);
+    }
     ::-webkit-scrollbar {height: 8px; width: 8px;}
     ::-webkit-scrollbar-thumb {background: rgba(255,255,255,0.15); border-radius: 999px;}
+
+    @media (max-width: 640px) {
+        .banner-panel {aspect-ratio: auto; min-height: 420px;}
+        .banner-content {left: 18px; right: 18px; bottom: 20px; max-width: none;}
+        .section-title {font-size: 24px;}
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .stApp *, .stApp *::before, .stApp *::after {
+            transition-duration: 0ms !important;
+            animation-duration: 0ms !important;
+        }
+        a:hover > .poster-card, a:hover > .banner-panel, a:hover > .poster-card .poster-img,
+        .stButton button:hover, .stButton button:active {transform: none !important;}
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -810,13 +981,13 @@ st.markdown(
     <a href="{html.escape(banner_watch_url, quote=True)}" target="_blank" style="text-decoration:none;">
     <div class='banner-panel' style="
       background:
-        linear-gradient(90deg, rgba(8,30,42,0.34), rgba(8,30,42,0.06)),
-        linear-gradient(180deg, rgba(150,245,255,0.26), rgba(0,3,8,0.42)),
+        linear-gradient(90deg, rgba(15,15,15,0.88) 0%, rgba(15,15,15,0.55) 45%, rgba(15,15,15,0.05) 100%),
+        linear-gradient(0deg, rgba(15,15,15,0.7) 0%, rgba(15,15,15,0) 55%),
         url('{html.escape(str(banner_poster), quote=True)}') center/cover no-repeat;
     ">
       <div class='banner-content'>
-        <div class='banner-kicker'>Cinematic Mood Journey</div>
-        <div class='banner-title'>{html.escape(str(banner_main.get('title','Featured Movies')).upper())}</div>
+        <div class='banner-kicker'>Featured for your mood</div>
+        <div class='banner-title'>{html.escape(str(banner_main.get('title','Featured Movies')))}</div>
         <div class='banner-sub'>{html.escape(banner_desc)}</div>
       </div>
     </div>
