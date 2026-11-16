@@ -31,6 +31,11 @@ def build_index(method="auto"):
         sim = compute_similarity_from_matrix(vec_res['embeddings'], cache_name="emb_sim.npy")
     return {"df": df, "vectors": vec_res, "similarity": sim}
 
+def _row_dict(df, i):
+    """Row as a dict with NaN replaced by None, so it serialises as JSON null."""
+    return {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in df.iloc[i].to_dict().items()}
+
+
 def recommend_by_title(title, index=None, top_n=10):
     if index is None:
         index = build_index(method="auto")
@@ -53,7 +58,7 @@ def recommend_by_title(title, index=None, top_n=10):
     top = sim_scores[1:top_n+1]
     results = []
     for i, score in top:
-        row = df.iloc[i].to_dict()
+        row = _row_dict(df, i)
         row['score'] = float(score)
         results.append(row)
     return results
@@ -72,7 +77,7 @@ def recommend_by_genre(genre: str, index=None, top_n=10):
     vectors = index["vectors"]
 
     # find candidate indices where genre string appears
-    mask = df['genres'].fillna('').str.lower().str.contains(genre.lower())
+    mask = df['genres'].fillna('').str.lower().str.contains(genre.lower(), regex=False)
     candidate_idxs = df[mask].index.tolist()
     if not candidate_idxs:
         raise ValueError(f"No movies found matching genre '{genre}'")
@@ -118,7 +123,7 @@ def recommend_by_genre(genre: str, index=None, top_n=10):
     top = ranked[:top_n]
     results = []
     for i, score in top:
-        row = df.iloc[i].to_dict()
+        row = _row_dict(df, i)
         row['score'] = float(score)
         results.append(row)
     return results
@@ -175,7 +180,7 @@ def recommend_by_mood(mood: str, index=None, top_n=10):
     top = ranked[:top_n]
     results = []
     for i, score in top:
-        row = df.iloc[i].to_dict()
+        row = _row_dict(df, i)
         row["score"] = float(score)
         results.append(row)
     return results

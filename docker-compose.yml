@@ -12,7 +12,8 @@ services:
       - REFRESH_INTERVAL_SECONDS=${REFRESH_INTERVAL_SECONDS:-300}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
     ports:
-      - "8000:8000"
+      # API has no auth; only reachable from this machine (the frontend uses backend:8000)
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./:/app:rw
       - ./data:/app/data:rw

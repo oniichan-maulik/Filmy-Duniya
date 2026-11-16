@@ -3,6 +3,7 @@ import streamlit.components.v1 as components
 import requests
 from typing import Optional
 from pathlib import Path
+import html
 import json
 import io
 from difflib import get_close_matches
@@ -22,7 +23,7 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 from src.config import TMDB_API_KEY as DEFAULT_TMDB_KEY
-from src.data_loader import load_movies
+from src.data_loader import load_movies, save_movies
 from src.recommender import MOOD_TO_GENRES
 from src.scraper import scrape_top_n_movies
 from src.user_store import (
@@ -418,15 +419,15 @@ if TMDB_API_KEY:
 
 with st.sidebar.expander("Database manager (edit & save)"):
     try:
-        df_preview = load_movies().head(50)
-        edited = st.sidebar.data_editor(df_preview, num_rows="dynamic", key="db_editor")
-        if st.sidebar.button("Save edits to data/movies.csv", key="save-db-editor"):
-            data_path = repo_root / "data" / "movies.csv"
-            data_path.parent.mkdir(parents=True, exist_ok=True)
-            edited.to_csv(data_path, index=False)
-            st.sidebar.success(f"Saved {len(edited)} rows to {data_path}")
+        # Edit the full catalog: saving a partial view would overwrite the CSV
+        # with only the rows shown.
+        df_all = load_movies()
+        edited = st.data_editor(df_all, num_rows="dynamic", key="db_editor")
+        if st.button("Save edits to data/movies.csv", key="save-db-editor"):
+            save_movies(edited)
+            st.success(f"Saved {len(edited)} rows to data/movies.csv")
     except Exception as e:
-        st.sidebar.warning(f"DB editor unavailable: {e}")
+        st.warning(f"DB editor unavailable: {e}")
 
 def _clean_poster_value(value: Optional[str]) -> Optional[str]:
     if isinstance(value, str):
@@ -571,17 +572,18 @@ def show_movie_card(movie: dict[str, object], tmdb_api_key: Optional[str]):
     
     watch_url = fetch_watch_url(title_str, tmdb_api_key, media_type=media_type)
     
+    esc = lambda v: html.escape(str(v), quote=True)
     st.markdown(
         f"""
-        <a href="{watch_url}" target="_blank" style="text-decoration:none;">
+        <a href="{esc(watch_url)}" target="_blank" style="text-decoration:none;">
         <div class='poster-card'>
             <div class='poster-frame'>
-                <img src='{poster}' class='poster-img' alt='{title_str} poster' loading='lazy'>
+                <img src='{esc(poster)}' class='poster-img' alt='{esc(title_str)} poster' loading='lazy'>
                 <div class='poster-overlay'></div>
             </div>
             <div class='poster-meta'>
-                <div class='poster-title'>{movie.get('title','Untitled')}</div>
-                <div class='poster-sub'>{movie.get('genres','N/A')}</div>
+                <div class='poster-title'>{esc(movie.get('title','Untitled'))}</div>
+                <div class='poster-sub'>{esc(movie.get('genres','N/A'))}</div>
             </div>
         </div>
         </a>
@@ -601,7 +603,7 @@ def show_movie_card(movie: dict[str, object], tmdb_api_key: Optional[str]):
     st.caption(f"Director: {movie.get('director', '—')}")
     
     # Favorite button
-    if st.button("⭐ Add to favorites", key=f"fav-{title_str[:20]}", use_container_width=True):
+    if st.button("⭐ Add to favorites", key=f"fav-{movie.get('movie_id') or title_str}", use_container_width=True):
         favs = st.session_state.setdefault("favorites", [])
         if not any(m.get('title', '') == title_str for m in favs):
             favs.append(movie)
@@ -805,17 +807,17 @@ else:
 banner_watch_url = f"?watch_token={banner_token}&watch_title={quote_plus(str(banner_main.get('title','')))}"
 st.markdown(
     f"""
-    <a href="{banner_watch_url}" target="_blank" style="text-decoration:none;">
+    <a href="{html.escape(banner_watch_url, quote=True)}" target="_blank" style="text-decoration:none;">
     <div class='banner-panel' style="
       background:
         linear-gradient(90deg, rgba(8,30,42,0.34), rgba(8,30,42,0.06)),
         linear-gradient(180deg, rgba(150,245,255,0.26), rgba(0,3,8,0.42)),
-        url('{banner_poster}') center/cover no-repeat;
+        url('{html.escape(str(banner_poster), quote=True)}') center/cover no-repeat;
     ">
       <div class='banner-content'>
         <div class='banner-kicker'>Cinematic Mood Journey</div>
-        <div class='banner-title'>{str(banner_main.get('title','Featured Movies')).upper()}</div>
-        <div class='banner-sub'>{banner_desc}</div>
+        <div class='banner-title'>{html.escape(str(banner_main.get('title','Featured Movies')).upper())}</div>
+        <div class='banner-sub'>{html.escape(banner_desc)}</div>
       </div>
     </div>
     </a>
@@ -845,7 +847,7 @@ manual_override = bool(typed_query or selected_genres)
 
 # If a watch param is present, route to watch page (token first, then title)
 qp = st.query_params
-watch_token = qp.get("watch_token", [None])[0] if qp.get("watch_token") else None
+watch_token = qp.get("watch_token") or None
 if watch_token and st.session_state.get("watch_map", {}).get(watch_token):
     st.session_state["selected_movie"] = st.session_state["watch_map"][watch_token]
     st.session_state["page"] = "watch"
@@ -855,9 +857,9 @@ else:
     if watch_token:
         target_title = _title_from_token(watch_token)
     if qp.get("watch_title"):
-        target_title = qp.get("watch_title", [None])[0]
+        target_title = qp.get("watch_title")
     if not target_title and qp.get("watch"):
-        target_title = qp.get("watch", [None])[0]
+        target_title = qp.get("watch")
     found = _resolve_movie_by_title(target_title) if target_title else None
     if found:
         st.session_state["selected_movie"] = found
@@ -884,7 +886,7 @@ def render_watch_page(movie: dict[str, object], tmdb_api_key: Optional[str]):
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.image(poster, use_container_width=True)
     st.markdown(
-        f"<div class='hero-title'>{movie.get('title','Untitled')}</div>",
+        f"<div class='hero-title'>{html.escape(str(movie.get('title','Untitled')))}</div>",
         unsafe_allow_html=True,
     )
     rating_val = tmdb_info.get("rating") if tmdb_info else movie.get("rating", 0)
@@ -1263,7 +1265,7 @@ if title:
     base = _apply_content_filter(load_movies())
     exact = base[base["title"].fillna("").str.lower() == title.lower()]
     if exact.empty:
-        matches = base[base["title"].fillna("").str.contains(title, case=False, na=False)]
+        matches = base[base["title"].fillna("").str.contains(title, case=False, na=False, regex=False)]
     else:
         matches = exact
     if matches.empty:

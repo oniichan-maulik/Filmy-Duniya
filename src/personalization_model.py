@@ -215,7 +215,9 @@ def train_personalization_model(min_events: int = 10) -> Dict[str, Any]:
     has_positive = any(y > 0 for y in y_rows)
     has_negative = any(y < 0 for y in y_rows)
 
-    vec = DictVectorizer(sparse=True)
+    # Dense: the feature space is small, and newer scipy builds int64-indexed
+    # CSR matrices that SGDRegressor rejects.
+    vec = DictVectorizer(sparse=False)
     x = vec.fit_transform(x_rows)
     y = np.asarray(y_rows, dtype=np.float32)
 
