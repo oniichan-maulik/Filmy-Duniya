@@ -178,14 +178,6 @@ def detect_emotion_from_bytes(image_bytes: bytes) -> Optional[Dict[str, Any]]:
     return details
 
 
-def detect_mood_from_frame(frame: np.ndarray) -> Optional[str]:
-    """Map detected emotion to app mood. Returns None when no face is detected."""
-    details = detect_emotion_details(frame)
-    if not details:
-        return None
-    return details["mood"]
-
-
 _CAMERA_LOCK = threading.Lock()
 
 

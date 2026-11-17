@@ -14,9 +14,3 @@ def compute_similarity_from_matrix(matrix, method="dense", cache_name="sim_matri
     sim = cosine_similarity(arr)
     np.save(CACHE / cache_name, sim)
     return sim
-
-def load_similarity(cache_name="sim_matrix.npy"):
-    p = CACHE / cache_name
-    if p.exists():
-        return np.load(p)
-    return None

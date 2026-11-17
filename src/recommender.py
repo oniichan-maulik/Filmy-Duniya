@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from src.data_loader import load_movies
 from src.preprocess import build_soup
 from src.vectorize import vectorize
@@ -126,71 +125,3 @@ def recommend_by_genre(genre: str, index=None, top_n=10):
         row['score'] = float(score)
         results.append(row)
     return results
-
-
-def genres_for_mood(mood: str) -> list[str]:
-    if mood is None or not str(mood).strip():
-        raise ValueError("Mood must be a non-empty string")
-    mood_key = str(mood).strip().lower()
-    if mood_key not in MOOD_TO_GENRES:
-        raise ValueError(
-            f"Unknown mood '{mood}'. Available moods: {', '.join(MOOD_TO_GENRES.keys())}"
-        )
-    return list(MOOD_TO_GENRES[mood_key])
-
-
-def recommend_by_mood(mood: str, index=None, top_n=10):
-    """Recommend movies using mood -> genres mapping."""
-    if index is None:
-        index = build_index(method="auto")
-    df = index["df"]
-    vectors = index["vectors"]
-    mapped_genres = genres_for_mood(mood)
-    mapped = [g.lower() for g in mapped_genres]
-
-    mask = df["genres"].fillna("").str.lower().apply(lambda x: any(g in x for g in mapped))
-    candidate_idxs = df[mask].index.tolist()
-    if not candidate_idxs:
-        raise ValueError(f"No movies found matching mood '{mood}'")
-
-    if vectors["type"] == "tfidf":
-        full = vectors["matrix"]
-        try:
-            cand_vecs = full[candidate_idxs]
-        except Exception:
-            cand_vecs = full.toarray()[candidate_idxs]
-    else:
-        full = vectors["embeddings"]
-        cand_vecs = full[candidate_idxs]
-
-    try:
-        centroid = np.mean(cand_vecs, axis=0)
-    except Exception:
-        centroid = np.array(cand_vecs.todense()).mean(axis=0)
-    centroid = np.asarray(centroid).ravel()
-
-    try:
-        sims = cosine_similarity(centroid.reshape(1, -1), full).flatten()
-    except Exception:
-        full_arr = full.toarray() if hasattr(full, "toarray") else np.array(full)
-        sims = cosine_similarity(centroid.reshape(1, -1), full_arr).flatten()
-
-    ranked = sorted([(i, float(sims[i])) for i in candidate_idxs], key=lambda x: x[1], reverse=True)
-    top = ranked[:top_n]
-    results = []
-    for i, score in top:
-        row = _row_dict(df, i)
-        row["score"] = float(score)
-        results.append(row)
-    return results
-
-
-def recommend(genre: str, n: int = 5, index=None) -> pd.DataFrame:
-    """Return genre recommendations as a DataFrame (used by the `main.py` CLI)."""
-    try:
-        results = recommend_by_genre(genre, index=index, top_n=n)
-    except ValueError:
-        results = []
-    if not results:
-        return pd.DataFrame(columns=["title", "genres", "director", "score"])
-    return pd.DataFrame(results)
