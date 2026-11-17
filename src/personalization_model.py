@@ -309,7 +309,7 @@ def personalization_model_status() -> Dict[str, Any]:
     artifact = load_model_artifact()
     if artifact is None:
         events = load_feedback_events()
-        labeled, y = _training_rows(events)
+        _, y = _training_rows(events)
         return {
             "available": False,
             "model_path": str(p),

@@ -27,13 +27,6 @@ def _write_csv_atomic(df: pd.DataFrame, p: Path) -> None:
             time.sleep(0.05)
 
 
-def save_movies(df: pd.DataFrame, path=DATA_PATH) -> None:
-    """Replace the whole catalog CSV with `df` (atomically, under the CSV lock)."""
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with _CSV_LOCK:
-        _write_csv_atomic(df, p)
-
 def load_movies(path=DATA_PATH):
     df = pd.read_csv(path)
     # basic dtype normalization
@@ -45,27 +38,6 @@ def load_movies(path=DATA_PATH):
         df = df.drop_duplicates(subset=['title'])
     df = df.reset_index(drop=True)
     return df
-
-
-def load_movies_by_genre(genre: str, top_n: int = 20, sort_by: str = "rating", path=DATA_PATH):
-    """Load movies from CSV filtered by `genre` (case-insensitive).
-
-    Returns a list of dicts (rows) sorted by `sort_by` which can be 'rating' or 'popularity'.
-    """
-    df = load_movies(path=path)
-    if genre is None or not str(genre).strip():
-        # return top overall
-        df_sorted = df.sort_values(by=sort_by, ascending=False)
-        return df_sorted.head(top_n).to_dict(orient="records")
-
-    mask = df['genres'].fillna("").str.lower().str.contains(str(genre).lower(), regex=False)
-    df_filtered = df[mask]
-    if df_filtered.empty:
-        return []
-    if sort_by not in df_filtered.columns:
-        sort_by = 'rating' if 'rating' in df_filtered.columns else df_filtered.columns[0]
-    df_sorted = df_filtered.sort_values(by=sort_by, ascending=False)
-    return df_sorted.head(top_n).to_dict(orient="records")
 
 
 def append_movie(movie: dict, path=DATA_PATH):
@@ -142,23 +114,3 @@ def append_bulk(rows, path=DATA_PATH):
 
         _write_csv_atomic(out, p)
         return out.reset_index(drop=True)
-
-
-def set_poster_for_title(title: str, poster_url: str, path=DATA_PATH):
-    """Set the poster_path for the first matching title in the CSV.
-
-    This function acquires the CSV lock, loads the CSV, updates the poster_path
-    for the rows whose title matches case-insensitively, writes the CSV back, and returns True if an update was
-    made or False if no matching row was found.
-    """
-    p = Path(path)
-    with _CSV_LOCK:
-        if not p.exists():
-            return False
-        df = pd.read_csv(p)
-        mask = df['title'].astype(str).str.lower() == str(title).strip().lower()
-        updated = bool(mask.any())
-        if updated:
-            df.loc[mask, 'poster_path'] = poster_url
-            _write_csv_atomic(df, p)
-        return bool(updated)

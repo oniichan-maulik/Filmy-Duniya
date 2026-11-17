@@ -232,35 +232,6 @@ def rerank_results_for_learning(results: list[Dict[str, Any]], mood: Optional[st
     return scored
 
 
-def learning_summary() -> Dict[str, Any]:
-    profile = load_user_profile()
-    return {
-        "feedback_events": int(profile.get("feedback_events", 0)),
-        "mood_counts": profile.get("mood_counts", {}),
-    }
-
-
-def learning_progress(target_events: int = 200) -> Dict[str, Any]:
-    summary = learning_summary()
-    events = int(summary.get("feedback_events", 0))
-    target = max(1, int(target_events))
-    pct = min(100.0, (events / target) * 100.0)
-    if pct < 20:
-        stage = "cold-start"
-    elif pct < 60:
-        stage = "learning"
-    elif pct < 90:
-        stage = "adapting"
-    else:
-        stage = "well-trained"
-    return {
-        "events": events,
-        "target_events": target,
-        "progress_pct": float(pct),
-        "stage": stage,
-    }
-
-
 def train_personalization_now(min_events: int = 10) -> Dict[str, Any]:
     linear_out: Dict[str, Any]
     try:
