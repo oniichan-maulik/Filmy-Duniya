@@ -84,6 +84,10 @@ The API has no authentication; keep it on localhost.
 
 ## Mood detection
 
+"Scan my mood" takes one photo from the visitor's webcam in the browser, with
+no preview (`web/mood_scan.py`); the photo is analysed in memory and never saved. Browsers only allow camera
+access on `localhost` or over HTTPS, so serve a deployed app over HTTPS.
+
 Two pretrained ONNX models in `models/`, no training needed:
 
 - **Face detection:** [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)

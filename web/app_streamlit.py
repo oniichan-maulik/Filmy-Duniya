@@ -22,10 +22,11 @@ if str(repo_root) not in sys.path:
 
 from src.config import TMDB_API_KEY as DEFAULT_TMDB_KEY
 from src.data_loader import load_movies
-from src.emotion_detection import detect_face_mood_backend
+from src.emotion_detection import detect_emotion_from_bytes
 from src.recommender import MOOD_TO_GENRES
 from src.scraper import scrape_top_n_movies
 from src.user_store import record_feedback, rerank_results_for_learning
+from mood_scan import mood_scan_button  # web/ is on sys.path: Streamlit adds the script's folder
 
 st.set_page_config(page_title="Filmy Duniya", layout="wide")
 logger = logging.getLogger("filmy_duniya.ui")
@@ -541,21 +542,25 @@ def toggle_watchlist(movie: dict) -> None:
 # --------------------------------------------------------------------------
 # Mood
 # --------------------------------------------------------------------------
-def scan_mood() -> None:
-    """Read the mood from the webcam; on failure, leave a note and keep the old mood."""
+def scan_mood(photo: bytes) -> None:
+    """Read the mood from a photo taken in the browser; on failure, leave a note and keep the old mood."""
     try:
-        details = detect_face_mood_backend()
-    except Exception as exc:  # noqa: BLE001 - camera, OpenCV or model failures all fall back to the picker
-        # surface the reason; failing silently once hid a broken face detector
+        details = detect_emotion_from_bytes(photo)
+    except ValueError:
+        st.session_state["scan_note"] = "That photo couldn’t be read. Take another, or pick a mood."
+        return
+    except Exception as exc:  # noqa: BLE001 - OpenCV or model failures fall back to the picker
+        # log the reason; failing silently once hid a broken face detector
         logger.warning("Mood scan failed: %s", exc)
-        st.session_state["scan_note"] = f"The camera couldn’t be read ({exc}). Pick a mood instead."
+        st.session_state["scan_note"] = "Mood reading isn’t available right now. Pick a mood instead."
         return
     if not details or not details.get("mood"):
         st.session_state["scan_note"] = "No face found. Face the camera in good light and scan again, or pick a mood."
         return
     st.session_state.update(
         mood=details["mood"],
-        mood_pick=details["mood"],
+        # the pills are already drawn this run, so they pick up the mood on the next one
+        sync_pick=True,
         mood_source="camera",
         scan_note=None,
         pick_seed=st.session_state["pick_seed"] + 1,
@@ -567,10 +572,6 @@ def _on_mood_pick() -> None:
     st.session_state["mood"] = picked
     st.session_state["mood_source"] = "picked" if picked else None
     st.session_state["scan_note"] = None
-
-
-def _on_scan_again() -> None:
-    st.session_state["scan_requested"] = True
 
 
 # --------------------------------------------------------------------------
@@ -724,13 +725,13 @@ def render_home() -> None:
         if mood in MOOD_COPY:
             line, sub = MOOD_COPY[mood]
         else:
-            line, sub = "How are you feeling?", "Let the camera read your mood, or pick one yourself."
+            line, sub = "How are you feeling?", "Take a quick photo to read your mood, or pick one yourself."
         st.markdown(f"<h1 class='hero-line'>{line}</h1><p class='hero-sub'>{sub}</p>", unsafe_allow_html=True)
 
         pills, scan = st.columns([5, 1.2], vertical_alignment="center")
         # Streamlit drops a widget's state while it's off screen (film page, watchlist,
         # search), so re-seed the pills from the mood when the viewer comes back.
-        if "mood_pick" not in st.session_state and mood in MOOD_COPY:
+        if (st.session_state.pop("sync_pick", False) or "mood_pick" not in st.session_state) and mood in MOOD_COPY:
             st.session_state["mood_pick"] = mood
         with pills:
             st.pills(
@@ -742,19 +743,26 @@ def render_home() -> None:
                 label_visibility="collapsed",
             )
         with scan:
-            st.button(
-                "Scan again",
-                key="scan-again",
-                icon=":material/photo_camera:",
-                on_click=_on_scan_again,
-                help="Read your mood from the webcam again",
+            # The browser grabs one frame with no preview, so this works for every
+            # visitor, not just whoever sits at the server's webcam.
+            photo, camera_error = mood_scan_button(
+                "Scan again" if st.session_state.get("mood_source") == "camera" else "Scan my mood",
+                nonce=st.session_state.get("scan_count", 0),
             )
+        if photo is not None or camera_error:
+            st.session_state["scan_count"] = st.session_state.get("scan_count", 0) + 1
+            if camera_error:
+                st.session_state["scan_note"] = camera_error
+            else:
+                with st.spinner("Reading your mood…"):
+                    scan_mood(photo)
+            st.rerun()  # redraw the hero with the new mood (or the note)
         note = st.session_state.get("scan_note")
         if note:
             st.markdown(f"<p class='hero-source'>{html.escape(note)}</p>", unsafe_allow_html=True)
         elif st.session_state.get("mood_source") == "camera":
             st.markdown(
-                "<p class='hero-source'>Read from your webcam. Pick another mood if it’s wrong.</p>",
+                "<p class='hero-source'>Read from your photo. Pick another mood if it’s wrong.</p>",
                 unsafe_allow_html=True,
             )
 
@@ -871,13 +879,6 @@ st.session_state.setdefault("view", "home")
 st.session_state.setdefault("pick_seed", int(time.time()))
 if "watchlist" not in st.session_state:
     st.session_state["watchlist"] = _load_watchlist()
-
-# Scan once when the session starts, then only when asked. A manual pick
-# stays until the viewer scans again.
-if st.session_state.pop("scan_requested", False) or "scanned_once" not in st.session_state:
-    st.session_state["scanned_once"] = True
-    with st.spinner("Reading your mood…"):
-        scan_mood()
 
 render_topbar()
 view = st.session_state["view"]

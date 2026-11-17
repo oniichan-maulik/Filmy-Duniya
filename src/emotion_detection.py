@@ -13,8 +13,6 @@ Model sources:
 
 from __future__ import annotations
 
-import sys
-import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -175,50 +173,4 @@ def detect_emotion_from_bytes(image_bytes: bytes) -> Optional[Dict[str, Any]]:
         return None
     # face_preview is a numpy array, which FastAPI can't serialize
     details.pop("face_preview", None)
-    return details
-
-
-_CAMERA_LOCK = threading.Lock()
-
-
-def capture_backend_frame(camera_index: int = 0, warmup_frames: int = 20) -> Optional[np.ndarray]:
-    """Grab one frame from the local webcam, after letting auto-exposure settle."""
-    if not _HAS_CV2:
-        raise RuntimeError("OpenCV is not installed; backend camera capture is unavailable.")
-
-    # On Windows the default MSMF backend takes ~5s to open a webcam; DirectShow ~0.3s
-    backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-    frame = None
-    # One webcam, many Streamlit sessions: scans that overlap make the driver throw
-    # from inside OpenCV, so take turns.
-    with _CAMERA_LOCK:
-        try:
-            cap = cv2.VideoCapture(camera_index, backend)
-            if not cap or not cap.isOpened():
-                raise RuntimeError("Cannot access camera device for backend face scan.")
-            try:
-                for _ in range(max(1, warmup_frames)):
-                    ok, frm = cap.read()
-                    if ok:
-                        frame = frm
-            finally:
-                try:
-                    cap.release()
-                except cv2.error:
-                    # the frame (if any) is already read; a failed release is harmless
-                    pass
-        except cv2.error as exc:
-            # cv2.error is not a RuntimeError; convert so callers can handle it
-            raise RuntimeError(f"Camera error: {exc}") from exc
-
-    if frame is None:
-        raise RuntimeError("Camera frame capture failed.")
-    return frame
-
-
-def detect_face_mood_backend() -> Optional[Dict[str, Any]]:
-    """Capture a webcam frame and return emotion details, or None if no face is found."""
-    details = detect_emotion_details(capture_backend_frame())
-    if details:
-        details["source"] = "face"
     return details
