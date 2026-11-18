@@ -119,6 +119,20 @@ the UI's mood picks. Existing interaction logs can be imported:
 python3 -m src.import_feedback_events --csv interactions.csv [--overwrite] [--min-abs-signal 0.2]
 ```
 
+## Evaluating "More like this"
+
+```bash
+python3 -m src.evaluate [--k 10] [--worst 10] [--refresh]
+```
+
+Scores the similar-titles shelf against TMDB's own recommendations (those that
+are in the catalogue) and prints hit rate, precision and recall at k, next to
+what random picks would score. TMDB leaves a film's own series out of its
+recommendations, so the other films of the same TMDB collection also count as
+right answers (`--no-series` turns that off). The first run fetches from TMDB
+(about a minute) and caches it in `data/cache/`; later runs are offline. Use the
+score to compare versions of the recommender, not as an absolute grade.
+
 ## Tests
 
 ```bash
