@@ -20,7 +20,8 @@ repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-from src.config import TMDB_API_KEY as DEFAULT_TMDB_KEY
+from src.config import BLEND_EMBEDDINGS, TMDB_API_KEY as DEFAULT_TMDB_KEY
+from src.embeddings import embed_texts, embedding_texts
 from src.data_loader import load_movies
 from src.emotion_detection import detect_emotion_from_bytes
 from src.recommender import MOOD_TO_GENRES, similar_rows, similarity_index, taste_scores
@@ -427,14 +428,16 @@ def genre_titles(genre: str, by: str = "popularity", limit: Optional[int] = None
     return _top(df[_genre_mask(df, BROWSE_GENRES[genre])], by, limit)
 
 
-@st.cache_resource(ttl=10 * 60, show_spinner=False)
+@st.cache_resource(ttl=10 * 60, show_spinner="Getting recommendations ready…")
 def similar_space() -> tuple[pd.DataFrame, object]:
     """The catalogue with its similarity vectors; cached together so their rows always line up.
 
-    Shared across sessions: read it, never mutate it.
+    Embeddings come from a disk cache, so only the very first start (or new
+    titles) runs the model. Shared across sessions: read it, never mutate it.
     """
     df = catalogue().reset_index(drop=True)
-    return df, similarity_index(df)
+    embeddings = embed_texts(embedding_texts(df)) if BLEND_EMBEDDINGS and not df.empty else None
+    return df, similarity_index(df, embeddings=embeddings)
 
 
 def _row_of(df: pd.DataFrame, movie: dict) -> Optional[int]:

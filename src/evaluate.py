@@ -9,6 +9,7 @@ versions of the recommender, not as a grade.
     python -m src.evaluate              # first run fetches from TMDB (~1 min), then cached
     python -m src.evaluate --k 10 --worst 15
     python -m src.evaluate --no-series  # TMDB's recommendations only
+    python -m src.evaluate --no-embeddings  # TF-IDF alone, to compare
     python -m src.evaluate --refresh    # re-fetch everything from TMDB
 """
 from __future__ import annotations
@@ -24,6 +25,7 @@ import requests
 
 from src.config import BASE_DIR, TMDB_API_KEY
 from src.data_loader import load_movies
+from src.embeddings import embed_texts, embedding_texts
 from src.recommender import similar_rows, similarity_index
 
 CACHE_PATH = BASE_DIR / "data" / "cache" / "tmdb_recommendations.json"
@@ -206,9 +208,12 @@ def evaluate(
     return summary, per_title
 
 
-def tfidf_recommender(df: pd.DataFrame) -> Callable[[int, int], list[int]]:
-    """What the app's "More like this" shelf uses today."""
-    matrix = similarity_index(df)
+def app_recommender(df: pd.DataFrame, use_embeddings: bool = True) -> Callable[[int, int], list[int]]:
+    """What the app's "More like this" shelf uses (TF-IDF blended with embeddings)."""
+    embeddings = embed_texts(embedding_texts(df)) if use_embeddings else None
+    if use_embeddings and embeddings is None:
+        print("Embeddings unavailable; scoring TF-IDF alone.")
+    matrix = similarity_index(df, embeddings=embeddings)
     titles = df["title"].astype(str).to_numpy()
 
     def recommend(row: int, k: int) -> list[int]:
@@ -224,6 +229,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     p.add_argument("--worst", type=int, default=10, help="how many of the worst titles to list")
     p.add_argument("--refresh", action="store_true", help="re-fetch everything from TMDB")
     p.add_argument("--no-series", action="store_true", help="don't count a film's own series as right answers")
+    p.add_argument("--no-embeddings", action="store_true", help="score TF-IDF alone, without sentence embeddings")
     args = p.parse_args(argv)
 
     df = load_movies()
@@ -231,7 +237,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     truth = fetch_tmdb_recommendations(ids, refresh=args.refresh)
     if not args.no_series:
         truth = with_collections(truth, fetch_tmdb_collections(ids, refresh=args.refresh))
-    summary, per_title = evaluate(df, tfidf_recommender(df), truth, k=args.k)
+    summary, per_title = evaluate(df, app_recommender(df, use_embeddings=not args.no_embeddings), truth, k=args.k)
     if not summary.get("scored"):
         print("No title has a TMDB recommendation inside the catalogue, so nothing could be scored.")
         return

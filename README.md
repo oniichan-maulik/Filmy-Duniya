@@ -68,8 +68,9 @@ Set in `.env` or the environment:
 | `REFRESH_INTERVAL_SECONDS` | `86400` | API: re-scrape and rebuild the index; `0` disables |
 | `ENABLE_AUTO_SCRAPER` | `1` | API: scrape on startup and on refresh |
 | `SCRAPE_MOVIE_COUNT` / `SCRAPER_MAX_PER_RUN` | `400` / `100` | API scraper size limits |
-| `USE_EMBEDDINGS` | `0` | `1` = sentence-transformers embeddings instead of TF-IDF |
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | embedding model when enabled |
+| `BLEND_EMBEDDINGS` | `1` | UI: blend sentence embeddings (what the plot means) into TF-IDF for "More like this" and the taste picks; `0` = TF-IDF only. Embeddings are cached in `data/cache/`, so only the first start (~25 s) or new titles run the model |
+| `USE_EMBEDDINGS` | `0` | API: `1` = sentence-transformers embeddings instead of TF-IDF |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | embedding model for both of the above |
 
 ## API
 
@@ -125,7 +126,8 @@ python3 -m src.import_feedback_events --csv interactions.csv [--overwrite] [--mi
 python3 -m src.evaluate [--k 10] [--worst 10] [--refresh]
 ```
 
-Scores the similar-titles shelf against TMDB's own recommendations (those that
+Scores the similar-titles shelf (`--no-embeddings` scores TF-IDF alone, to
+compare) against TMDB's own recommendations (those that
 are in the catalogue) and prints hit rate, precision and recall at k, next to
 what random picks would score. TMDB leaves a film's own series out of its
 recommendations, so the other films of the same TMDB collection also count as

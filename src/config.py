@@ -14,7 +14,9 @@ DATA_PATH = BASE_DIR / "data" / "movies.csv"
 
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")  # sentence-transformers
-USE_EMBEDDINGS = os.getenv("USE_EMBEDDINGS", "0") == "1"  # toggle to use SBERT
+USE_EMBEDDINGS = os.getenv("USE_EMBEDDINGS", "0") == "1"  # API's build_index: SBERT instead of TF-IDF
+# UI "More like this" and taste picks: blend embeddings into TF-IDF (falls back to TF-IDF if unavailable)
+BLEND_EMBEDDINGS = os.getenv("BLEND_EMBEDDINGS", "1") == "1"
 # interval (in seconds) for background data refresh. Set to 0 to disable.
 # default: daily refresh
 REFRESH_INTERVAL_SECONDS = int(os.getenv("REFRESH_INTERVAL_SECONDS", "86400"))
