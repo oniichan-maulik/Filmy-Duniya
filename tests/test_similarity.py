@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.recommender import similar_rows, similarity_index, taste_scores
 
@@ -40,6 +41,30 @@ def test_taste_favours_films_like_your_likes_and_away_from_dislikes():
     taste = taste_scores(m, liked=[0], disliked=[2])
     assert taste[1] > 0 > taste[3]
     assert np.argmax(np.delete(taste, 0)) == 0  # Space Two is the closest unrated film
+
+
+def test_blend_with_embeddings_is_a_weighted_sum_of_both_similarities():
+    tfidf = similarity_index(DF)
+    rng = np.random.default_rng(0)
+    emb = rng.normal(size=(len(DF), 8))
+    emb /= np.linalg.norm(emb, axis=1, keepdims=True)
+    blended = similarity_index(DF, embeddings=emb, tfidf_weight=0.7)
+    expected = 0.7 * (tfidf @ tfidf.T).toarray() + 0.3 * emb @ emb.T
+    assert np.allclose((blended @ blended.T).toarray(), expected)
+    # every row stays unit length, so a title is still most like itself
+    assert np.allclose((blended @ blended.T).diagonal(), 1.0)
+
+
+def test_embeddings_can_move_the_nearest_neighbour():
+    # embeddings say Office Laughs is about the same thing as Space One
+    emb = np.eye(len(DF))
+    emb[4] = emb[0]
+    assert similar_rows(similarity_index(DF, embeddings=emb, tfidf_weight=0.3), 0, top_n=1) == [4]
+
+
+def test_wrong_number_of_embeddings_is_an_error():
+    with pytest.raises(ValueError):
+        similarity_index(DF, embeddings=np.ones((2, 3)))
 
 
 def test_no_likes_means_no_taste():
