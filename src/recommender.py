@@ -1,6 +1,8 @@
 import numpy as np
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
 from src.data_loader import load_movies
-from src.preprocess import build_soup
+from src.preprocess import build_soup, clean_text
 from src.vectorize import vectorize
 from src.similarity import compute_similarity_from_matrix
 from sklearn.metrics.pairwise import cosine_similarity
@@ -16,6 +18,55 @@ MOOD_TO_GENRES = {
     "excited": ["Adventure", "Science Fiction", "Sci-Fi", "Fantasy"],
     "calm": ["Documentary", "History", "Music", "Animation", "Family"],
 }
+
+
+def _person_tokens(cell) -> str:
+    # one token per person, so two films sharing only the first name "tom" stay apart
+    if not isinstance(cell, str):
+        return ""
+    return " ".join("".join(ch for ch in name.lower() if ch.isalnum()) for name in cell.split("|"))
+
+
+def similarity_index(df: pd.DataFrame):
+    """TF-IDF rows (unit length) over genres, people and plot, aligned with df's positions.
+
+    Built in memory only; build_index() also caches large .npy files to disk.
+    """
+    if df.empty:
+        return None
+
+    def col(name: str) -> pd.Series:
+        return df[name] if name in df.columns else pd.Series([""] * len(df), index=df.index)
+
+    genres = col("genres").fillna("").astype(str).str.replace("|", " ", regex=False)
+    director = col("director").map(_person_tokens)
+    # films sit with films and shows with shows
+    kind = "kind" + col("media_type").fillna("movie").astype(str).str.replace(r"\W", "", regex=True)
+    soup = (
+        # genre and director count twice: they're the strongest hints of a film's feel
+        genres + " " + genres + " " + director + " " + director + " " + kind + " " + kind + " "
+        + col("cast").map(_person_tokens) + " "
+        + col("description").fillna("").astype(str)
+    ).map(clean_text)
+    return TfidfVectorizer(stop_words="english").fit_transform(soup.tolist())
+
+
+def similar_rows(matrix, row: int, top_n: int = 12) -> list[int]:
+    """Positions of the rows most like `row`, best first, never `row` itself."""
+    sims = (matrix @ matrix[row].T).toarray().ravel()
+    sims[row] = 0.0
+    order = np.argsort(-sims, kind="stable")
+    return [int(i) for i in order[:top_n] if sims[i] > 0]
+
+
+def taste_scores(matrix, liked: list[int], disliked: list[int]) -> np.ndarray:
+    """Per row: likeness to the closest liked film, minus half that to the closest disliked one."""
+    score = np.zeros(matrix.shape[0])
+    if liked:
+        score += (matrix @ matrix[liked].T).toarray().max(axis=1)
+    if disliked:
+        score -= 0.5 * (matrix @ matrix[disliked].T).toarray().max(axis=1)
+    return score
 
 
 def build_index(method="auto"):

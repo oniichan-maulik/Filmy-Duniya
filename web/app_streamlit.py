@@ -23,9 +23,10 @@ if str(repo_root) not in sys.path:
 from src.config import TMDB_API_KEY as DEFAULT_TMDB_KEY
 from src.data_loader import load_movies
 from src.emotion_detection import detect_emotion_from_bytes
-from src.recommender import MOOD_TO_GENRES
+from src.recommender import MOOD_TO_GENRES, similar_rows, similarity_index, taste_scores
 from src.scraper import scrape_top_n_movies
-from src.user_store import record_feedback, rerank_results_for_learning
+from src.search import search_catalogue
+from src.user_store import load_user_profile, record_feedback, rerank_results_for_learning
 from mood_scan import mood_scan_button  # web/ is on sys.path: Streamlit adds the script's folder
 
 st.set_page_config(page_title="Filmy Duniya", layout="wide")
@@ -35,6 +36,12 @@ GRID_SIZE = 18  # three rows of six
 GRID_COLUMNS = 6
 SHELF_SIZE = 15
 GENRE_PAGE_STEP = 24  # four rows of six per "Show more"
+# How far likes and dislikes steer the mood picks. Taste is scaled so the
+# candidate closest to your likes scores 1. Its draw weight is multiplied by
+# exp(PULL * taste) (~20x at PULL 3; variety barely drops in a simulation), and
+# the grid order adds ORDER * taste rating points.
+TASTE_PULL = 3.0
+TASTE_ORDER = 1.5
 # Browse genres, each a family of catalogue tags: TV shows use "Action & Adventure"
 # and "Sci-Fi & Fantasy", so matching is a case-insensitive substring test.
 BROWSE_GENRES = {
@@ -370,8 +377,10 @@ def _genre_mask(df: pd.DataFrame, genres: list[str]) -> pd.Series:
     return df["genres"].fillna("").str.lower().apply(lambda x: any(g in x for g in wanted))
 
 
-def _pick_varied(df: pd.DataFrame, n: int, seed: int, avoid: set[str]) -> pd.DataFrame:
-    """Pick n rows at random, favouring higher ratings and avoiding the last batch.
+def _pick_varied(
+    df: pd.DataFrame, n: int, seed: int, avoid: set[str], taste: Optional[np.ndarray] = None
+) -> pd.DataFrame:
+    """Pick n rows at random, favouring higher ratings, your taste, and avoiding the last batch.
 
     The same seed gives the same pick, so the list only changes when the seed
     changes (a new scan or mood), not on every Streamlit rerun.
@@ -381,6 +390,8 @@ def _pick_varied(df: pd.DataFrame, n: int, seed: int, avoid: set[str]) -> pd.Dat
     rating = pd.to_numeric(df["rating"], errors="coerce").fillna(0.0).clip(0, 10).to_numpy()
     # each rating point makes a title ~2.7x likelier; picks average ~8/10
     weights = np.exp(rating - 10.0)
+    if taste is not None:
+        weights = weights * np.exp(TASTE_PULL * taste)
     shown_last = df["title"].fillna("").astype(str).isin(avoid).to_numpy()
     weights = np.where(shown_last, weights * 0.25, weights)
     rng = np.random.default_rng(seed)
@@ -416,13 +427,68 @@ def genre_titles(genre: str, by: str = "popularity", limit: Optional[int] = None
     return _top(df[_genre_mask(df, BROWSE_GENRES[genre])], by, limit)
 
 
+@st.cache_resource(ttl=10 * 60, show_spinner=False)
+def similar_space() -> tuple[pd.DataFrame, object]:
+    """The catalogue with its similarity vectors; cached together so their rows always line up.
+
+    Shared across sessions: read it, never mutate it.
+    """
+    df = catalogue().reset_index(drop=True)
+    return df, similarity_index(df)
+
+
+def _row_of(df: pd.DataFrame, movie: dict) -> Optional[int]:
+    movie_id, title = _text(movie, "movie_id"), _text(movie, "title")
+    if movie_id and "movie_id" in df.columns:
+        hits = np.flatnonzero(df["movie_id"].astype(str).to_numpy() == movie_id)
+        if len(hits):
+            return int(hits[0])
+    hits = np.flatnonzero(df["title"].astype(str).to_numpy() == title)
+    return int(hits[0]) if len(hits) else None
+
+
+def more_like_this(movie: dict, limit: int = SHELF_SIZE) -> list[dict]:
+    df, matrix = similar_space()
+    row = _row_of(df, movie) if matrix is not None else None
+    if row is None:
+        return []
+    picked = df.iloc[similar_rows(matrix, row, top_n=limit * 2)]
+    picked = picked[picked["title"] != df["title"].iloc[row]].drop_duplicates("title")
+    return picked.head(limit).to_dict(orient="records")
+
+
+def _taste(df: pd.DataFrame, matrix) -> tuple[Optional[np.ndarray], set[int]]:
+    """Likeness of every row to your likes, and the rows you said weren't for you."""
+    prefs = load_user_profile().get("title_preferences") or {}
+    if matrix is None or not prefs:
+        return None, set()
+    by_title = {t: i for i, t in enumerate(df["title"].astype(str).str.strip().str.lower())}
+    liked = [by_title[t] for t, w in prefs.items() if t in by_title and float(w) > 0]
+    disliked = [by_title[t] for t, w in prefs.items() if t in by_title and float(w) < 0]
+    if not liked and not disliked:
+        return None, set()
+    taste = taste_scores(matrix, liked, disliked)
+    # a liked film is perfectly like itself; don't push what you've seen back at you
+    taste[liked] = 0.0
+    return taste, set(disliked)
+
+
 def mood_picks(mood: str) -> list[dict]:
-    df = catalogue()
+    df, matrix = similar_space()
     if df.empty:
         return []
-    matches = df[_genre_mask(df, MOOD_TO_GENRES.get(mood, []))]
+    taste, disliked = _taste(df, matrix)
+    mask = _genre_mask(df, MOOD_TO_GENRES.get(mood, [])).to_numpy()
+    if disliked:
+        mask[list(disliked)] = False
+    matches = df[mask]
     if matches.empty:
         return []
+    if taste is not None:
+        pool = taste[matches.index]
+        top = pool.max()
+        # raw likeness is small (~0.05-0.2), so measure it against the best candidate
+        taste = taste / top if top > 0 else None
     key = (mood, st.session_state["pick_seed"])
     if st.session_state.get("pick_key") != key:
         # new batch: remember what the previous one showed so it is avoided
@@ -433,18 +499,22 @@ def mood_picks(mood: str) -> list[dict]:
         GRID_SIZE,
         seed=zlib.crc32(f"{key[0]}:{key[1]}".encode()),
         avoid=set(st.session_state.get("prev_titles", [])),
+        taste=None if taste is None else taste[matches.index],
     )
     st.session_state["shown_titles"] = picked["title"].astype(str).tolist()
-    return rerank_results_for_learning(picked.to_dict(orient="records"), mood)
+    records = picked.to_dict(orient="records")
+    if taste is not None:
+        # order the grid by rating nudged toward your taste (the ranker adds its own boosts)
+        for rec, row in zip(records, picked.index):
+            rating = pd.to_numeric(rec.get("rating"), errors="coerce")
+            rec["score"] = (0.0 if pd.isna(rating) else float(rating)) + TASTE_ORDER * float(taste[row])
+    return rerank_results_for_learning(records, mood)
 
 
-def search_titles(query: str) -> list[dict]:
-    df = catalogue()
-    if df.empty:
-        return []
-    hits = df[df["title"].fillna("").str.contains(query, case=False, regex=False)].copy()
-    hits["rating"] = pd.to_numeric(hits["rating"], errors="coerce")
-    return hits.sort_values("rating", ascending=False).head(GRID_SIZE).to_dict(orient="records")
+def search_titles(query: str) -> tuple[list[dict], Optional[str]]:
+    """Matches for a title, person or genre (typos forgiven), plus a hint when none match."""
+    hits, suggestion = search_catalogue(catalogue(), query, limit=GRID_SIZE)
+    return hits.to_dict(orient="records"), suggestion
 
 
 def _run_daily_scraper() -> None:
@@ -578,8 +648,9 @@ def _on_mood_pick() -> None:
 # Navigation
 # --------------------------------------------------------------------------
 def go(view: str, movie: Optional[dict] = None) -> None:
-    if view == "movie":
-        # Back returns to the list the film was opened from
+    if view == "movie" and st.session_state.get("view") != "movie":
+        # Back returns to the list the film was opened from, even after
+        # hopping through "More like this"
         st.session_state["return_view"] = st.session_state.get("view", "home")
     st.session_state["view"] = view
     st.session_state["movie"] = movie
@@ -609,6 +680,10 @@ def _show_more() -> None:
 
 def _clear_search() -> None:
     st.session_state["search"] = ""
+
+
+def _use_suggestion(title: str) -> None:
+    st.session_state["search"] = title
 
 
 # --------------------------------------------------------------------------
@@ -684,7 +759,7 @@ def render_topbar() -> None:
         with search:
             st.text_input(
                 "Search films",
-                placeholder="Search by title",
+                placeholder="Search a title, actor, director or genre",
                 autocomplete="off",
                 label_visibility="collapsed",
                 key="search",
@@ -706,17 +781,21 @@ def render_topbar() -> None:
 def render_home() -> None:
     query = str(st.session_state.get("search") or "").strip()
     if query:
-        results = search_titles(query)
+        results, suggestion = search_titles(query)
         st.markdown(f"<h2 class='grid-heading'>Results for “{html.escape(query)}”</h2>", unsafe_allow_html=True)
         st.button("Clear search", key="clear-search", on_click=_clear_search)
         if results:
             poster_grid(results, "search")
         else:
             st.markdown(
-                "<p class='empty'>No films with that title in the catalogue. "
-                "Check the spelling or try a shorter name.</p>",
+                "<p class='empty'>Nothing in the catalogue matches that title, actor, director or genre.</p>",
                 unsafe_allow_html=True,
             )
+            if suggestion:
+                st.button(
+                    f"Did you mean {suggestion}?", key="search-suggestion",
+                    on_click=_use_suggestion, args=(suggestion,),
+                )
         return
 
     mood = st.session_state.get("mood")
@@ -868,6 +947,8 @@ def render_movie(movie: dict) -> None:
         trailer = trailer_url(title)
         if trailer:
             st.video(trailer)
+
+    poster_shelf("More like this", more_like_this(movie), "similar")
 
 
 # --------------------------------------------------------------------------

@@ -2,8 +2,10 @@
 
 A mood-based movie recommender. The Streamlit UI reads your mood from the
 webcam (or lets you pick one) and suggests movies and shows from a TMDB-backed
-catalogue, re-ranked by what you have liked before. A FastAPI service exposes
-the same catalogue and a content-similarity index over HTTP.
+catalogue. Mood picks lean toward films like the ones you liked (and away
+from ones you didn't), each film page has a "More like this" shelf, and search
+forgives typos and also matches actors, directors and genres. A FastAPI service
+exposes the same catalogue and a content-similarity index over HTTP.
 
 ## Project layout
 
@@ -11,6 +13,7 @@ the same catalogue and a content-similarity index over HTTP.
 src/            core library
   api.py                  FastAPI service (recommendations, catalogue, mood from an image)
   recommender.py          TF-IDF / embedding similarity index, title + genre recommendations
+  search.py               typo-tolerant catalogue search (rapidfuzz)
   emotion_detection.py    YuNet face detection + HSEmotion mood classifier
   user_store.py           feedback recording and personal re-ranking
   personalization_model.py  trainable ranker over feedback events
