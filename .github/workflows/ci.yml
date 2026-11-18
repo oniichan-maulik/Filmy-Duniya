@@ -1,0 +1,56 @@
+# CI: on every push to develop/main and every PR into main, GitHub starts a
+# fresh Linux machine, installs the project from scratch, and runs the linter
+# and the test suite. A red cross on the PR means one of those steps failed.
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # adds a "Run workflow" button on the Actions tab
+
+# A newer push to the same branch cancels the run that's still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # the job only reads the code
+
+jobs:
+  test:
+    name: Lint and test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false # let both versions finish so you see every failure
+      matrix:
+        python-version: ["3.11", "3.12"] # the versions the README promises
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip # reuse downloaded packages between runs
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # sentence-transformers pulls in PyTorch; the CPU build is ~10x
+          # smaller than the default CUDA one and is all the tests need
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pyflakes
+
+      - name: Lint (pyflakes)
+        run: python -m pyflakes src web tests
+
+      - name: Test (pytest)
+        # the Playwright UI test needs a running app and a browser; it skips
+        # itself unless RUN_UI_TESTS=1
+        run: python -m pytest -q --ignore=tests/playwright_ui_test.py
