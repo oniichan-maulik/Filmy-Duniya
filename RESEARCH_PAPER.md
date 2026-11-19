@@ -591,7 +591,7 @@ def rerank_results_for_learning(results, mood):
 ### 12.1 Environment Variables
 
 ```python
-TMDB_API_KEY = "785c5f1bd5e3e823f06abdfe6168588e"  # Default (limited)
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")  # Set in .env, never committed
 USE_EMBEDDINGS = "0"  # Set to "1" for SBERT
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 REFRESH_INTERVAL_SECONDS = 86400  # Daily

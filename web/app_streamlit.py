@@ -27,7 +27,7 @@ from src.emotion_detection import detect_emotion_from_bytes
 from src.recommender import MOOD_TO_GENRES, similar_rows, similarity_index, taste_scores
 from src.scraper import scrape_top_n_movies
 from src.search import search_catalogue
-from src.user_store import load_user_profile, record_feedback, rerank_results_for_learning
+from src.user_store import load_user_profile, record_feedback, rerank_results_for_learning, title_verdict
 from mood_scan import mood_scan_button  # web/ is on sys.path: Streamlit adds the script's folder
 
 st.set_page_config(page_title="Filmy Duniya", layout="wide")
@@ -323,11 +323,15 @@ st.markdown(
 # --------------------------------------------------------------------------
 # Data helpers
 # --------------------------------------------------------------------------
+class _TmdbUnavailable(Exception):
+    """TMDB couldn't be reached. Raised inside cached helpers so the failure isn't cached."""
+
+
+# st.cache_data caches a None return like any other result but never caches an
+# exception. So the cached helpers raise on a failed call and the wrappers below
+# turn that into None: a real "no match" is cached, a network blip is retried.
 @st.cache_data(ttl=60 * 60, show_spinner=False)
-def _tmdb_search(title: str) -> Optional[dict]:
-    """First TMDB search hit for a title, or None."""
-    if not TMDB_API_KEY or not title:
-        return None
+def _tmdb_search_cached(title: str) -> Optional[dict]:
     try:
         resp = requests.get(
             "https://api.themoviedb.org/3/search/movie",
@@ -336,12 +340,22 @@ def _tmdb_search(title: str) -> Optional[dict]:
         )
         resp.raise_for_status()
         results = resp.json().get("results") or []
-        return results[0] if results else None
-    except Exception:
+    except (requests.RequestException, ValueError) as exc:
+        raise _TmdbUnavailable(type(exc).__name__) from exc  # the message holds the URL, key included
+    return results[0] if results else None
+
+
+def _tmdb_search(title: str) -> Optional[dict]:
+    """First TMDB search hit for a title, or None."""
+    if not TMDB_API_KEY or not title:
+        return None
+    try:
+        return _tmdb_search_cached(title)
+    except _TmdbUnavailable as exc:
+        logger.warning("TMDB search failed for %r: %s", title, exc)
         return None
 
 
-@st.cache_data(ttl=60 * 60, show_spinner=False)
 def poster_url(title: str, poster_path: Optional[str], size: str = "w500") -> str:
     path = poster_path.strip() if isinstance(poster_path, str) else ""
     if not path:
@@ -352,10 +366,48 @@ def poster_url(title: str, poster_path: Optional[str], size: str = "w500") -> st
     return path if path.startswith("http") else f"https://image.tmdb.org/t/p/{size}{path}"
 
 
+# Card posters show at 136-200 CSS px, so w500 for every one wasted ~2/3 of the bytes.
+# The browser picks from these by layout width and screen density.
+CARD_SIZES = ("w185", "w342", "w500")
+FILM_SIZES = ("w342", "w500", "w780")
+# How wide each poster shows, matching the CSS breakpoints below.
+GRID_SIZES_ATTR = "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, min(16vw, 200px)"
+SHELF_SIZES_ATTR = "(max-width: 640px) 136px, 160px"
+FILM_SIZES_ATTR = "(max-width: 640px) 280px, 380px"
+EAGER_POSTERS = 6  # about the first visible row; the rest load lazily
+
+
+def poster_img(title: str, poster_path: Optional[str], sizes: tuple[str, ...], sizes_attr: str,
+               cls: str = "", eager: bool = False) -> str:
+    """An <img> with a TMDB srcset, so the browser fetches only as many pixels as it shows."""
+    src = poster_url(title, poster_path, size=sizes[1])
+    attrs = [f"src='{html.escape(src, quote=True)}'"]
+    marker = f"/t/p/{sizes[1]}/"
+    if marker in src:  # a TMDB path; a full URL or the placeholder has one size only
+        srcset = ", ".join(f"{src.replace(marker, f'/t/p/{s}/')} {s[1:]}w" for s in sizes)
+        attrs += [f"srcset='{html.escape(srcset, quote=True)}'", f"sizes='{sizes_attr}'"]
+    if cls:
+        attrs.append(f"class='{cls}'")
+    attrs.append(f"alt='Poster for {html.escape(title, quote=True)}'")
+    attrs.append("loading='eager' fetchpriority='high'" if eager else "loading='lazy'")
+    return f"<img {' '.join(attrs)}>"
+
+
+# Streamlit re-executes this script on every rerun, so this count starts fresh each time.
+_eager_left = [EAGER_POSTERS]
+
+
+def _take_eager() -> bool:
+    """True for the first EAGER_POSTERS cards drawn in this run of the script."""
+    if _eager_left[0] > 0:
+        _eager_left[0] -= 1
+        return True
+    return False
+
+
 @st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
-def trailer_url(title: str) -> Optional[str]:
-    """A YouTube trailer or teaser from TMDB, if one exists."""
-    hit = _tmdb_search(title)
+def _trailer_url_cached(title: str) -> Optional[str]:
+    hit = _tmdb_search_cached(title)  # raises _TmdbUnavailable, so a failure isn't cached
     if not hit or not hit.get("id"):
         return None
     try:
@@ -365,12 +417,24 @@ def trailer_url(title: str) -> Optional[str]:
             timeout=6,
         )
         resp.raise_for_status()
-        for v in resp.json().get("results") or []:
-            if v.get("site") == "YouTube" and v.get("type") in {"Trailer", "Teaser"} and v.get("key"):
-                return f"https://www.youtube.com/watch?v={v['key']}"
-    except Exception:
-        return None
+        videos = resp.json().get("results") or []
+    except (requests.RequestException, ValueError) as exc:
+        raise _TmdbUnavailable(type(exc).__name__) from exc  # the message holds the URL, key included
+    for v in videos:
+        if v.get("site") == "YouTube" and v.get("type") in {"Trailer", "Teaser"} and v.get("key"):
+            return f"https://www.youtube.com/watch?v={v['key']}"
     return None
+
+
+def trailer_url(title: str) -> Optional[str]:
+    """A YouTube trailer or teaser from TMDB, if one exists."""
+    if not TMDB_API_KEY or not title:
+        return None
+    try:
+        return _trailer_url_cached(title)
+    except _TmdbUnavailable as exc:
+        logger.warning("TMDB trailer lookup failed for %r: %s", title, exc)
+        return None
 
 
 def _genre_mask(df: pd.DataFrame, genres: list[str]) -> pd.Series:
@@ -481,7 +545,8 @@ def mood_picks(mood: str) -> list[dict]:
     if df.empty:
         return []
     taste, disliked = _taste(df, matrix)
-    mask = _genre_mask(df, MOOD_TO_GENRES.get(mood, [])).to_numpy()
+    # copy: under pandas 3 copy-on-write, to_numpy() hands back a read-only view
+    mask = _genre_mask(df, MOOD_TO_GENRES.get(mood, [])).to_numpy(copy=True)
     if disliked:
         mask[list(disliked)] = False
     matches = df[mask]
@@ -706,19 +771,16 @@ def poster_grid(movies: list[dict], key_prefix: str, label: Optional[str] = None
         cols = st.columns(GRID_COLUMNS)
         for col, movie in zip(cols, row):
             with col:
-                poster_card(movie, key_prefix)
+                poster_card(movie, key_prefix, GRID_SIZES_ATTR)
 
 
-def poster_card(movie: dict, key_prefix: str) -> None:
+def poster_card(movie: dict, key_prefix: str, sizes_attr: str) -> None:
     title = _text(movie, "title", "Untitled")
     uid = f"{key_prefix}-{zlib.crc32(_movie_key(movie).encode())}"
     with st.container(key=f"card-{uid}"):
-        img = poster_url(title, movie.get("poster_path"))
-        st.markdown(
-            f"<div class='poster-frame'><img class='poster' src='{html.escape(img, quote=True)}' "
-            f"alt='Poster for {html.escape(title, quote=True)}' loading='lazy'></div>",
-            unsafe_allow_html=True,
-        )
+        img = poster_img(title, movie.get("poster_path"), CARD_SIZES, sizes_attr,
+                         cls="poster", eager=_take_eager())
+        st.markdown(f"<div class='poster-frame'>{img}</div>", unsafe_allow_html=True)
         st.button(title, key=f"open-{uid}", on_click=go, args=("movie", movie))
         genre = _text(movie, "genres").split("|")[0]
         rating = _rating_text(movie)
@@ -742,7 +804,7 @@ def poster_shelf(heading: str, movies: list[dict], slug: str, genre: Optional[st
         cols = st.columns(len(movies))
         for col, movie in zip(cols, movies):
             with col:
-                poster_card(movie, f"shelf-{slug}")
+                poster_card(movie, f"shelf-{slug}", SHELF_SIZES_ATTR)
 
 
 def render_browse() -> None:
@@ -806,6 +868,8 @@ def render_home() -> None:
     with st.container(key=f"hero-{mood if mood in MOOD_COPY else 'none'}"):
         if mood in MOOD_COPY:
             line, sub = MOOD_COPY[mood]
+            if st.session_state.get("mood_source") != "camera":
+                line = f"Feeling {mood}."  # picked by hand, so don't claim we read the face
         else:
             line, sub = "How are you feeling?", "Take a quick photo to read your mood, or pick one yourself."
         st.markdown(f"<h1 class='hero-line'>{line}</h1><p class='hero-sub'>{sub}</p>", unsafe_allow_html=True)
@@ -851,7 +915,8 @@ def render_home() -> None:
     if mood:
         picks = mood_picks(mood)
         if picks:
-            poster_grid(picks, "mood", f"Films for a {mood} mood")
+            article = "an" if mood[:1] in "aeiou" else "a"
+            poster_grid(picks, "mood", f"Films for {article} {mood} mood")
         else:
             st.markdown(
                 "<p class='empty'>Nothing in the catalogue matches this mood yet. Try another one.</p>",
@@ -904,12 +969,8 @@ def render_movie(movie: dict) -> None:
     st.button("Back", key="back-movie", icon=":material/arrow_back:", on_click=go_back)
     left, right = st.container(key="film").columns([1, 2.2], gap="large")
     with left:
-        img = poster_url(title, movie.get("poster_path"), size="w780")
-        st.markdown(
-            f"<div class='film-poster'><img src='{html.escape(img, quote=True)}' "
-            f"alt='Poster for {html.escape(title, quote=True)}'></div>",
-            unsafe_allow_html=True,
-        )
+        img = poster_img(title, movie.get("poster_path"), FILM_SIZES, FILM_SIZES_ATTR, eager=True)
+        st.markdown(f"<div class='film-poster'>{img}</div>", unsafe_allow_html=True)
     with right:
         st.markdown(f"<h1 class='detail-title'>{html.escape(title)}</h1>", unsafe_allow_html=True)
         genres = _text(movie, "genres").replace("|", ", ")
@@ -938,14 +999,24 @@ def render_movie(movie: dict) -> None:
                 args=(movie,),
             )
         # Likes and dislikes train the personal ranker behind the mood picks.
+        # The chosen verdict shows as pressed and can't stack; the other one switches it.
+        verdict = title_verdict(movie)
         with liked:
-            if st.button("I liked it", key="liked", icon=":material/thumb_up:"):
+            if st.button(
+                "You liked it" if verdict == "liked" else "I liked it",
+                key="liked", icon=":material/thumb_up:", disabled=verdict == "liked",
+            ):
                 if _feedback(movie, rating=5.0):
                     st.toast("Got it. You’ll see more like this.")
+                    st.rerun()
         with disliked:
-            if st.button("Not for me", key="disliked", icon=":material/thumb_down:"):
+            if st.button(
+                "Not for you" if verdict == "disliked" else "Not for me",
+                key="disliked", icon=":material/thumb_down:", disabled=verdict == "disliked",
+            ):
                 if _feedback(movie, rating=1.0):
                     st.toast("Got it. You’ll see less like this.")
+                    st.rerun()
 
         trailer = trailer_url(title)
         if trailer:

@@ -17,7 +17,7 @@ from src.config import (
     SCRAPER_MAX_PER_RUN,
     ENABLE_AUTO_SCRAPER,
 )
-from src.data_loader import append_movie, load_movies
+from src.data_loader import append_movie
 from src.recommender import build_index, recommend_by_genre, recommend_by_title
 from src.scraper import scrape_top_n_movies
 from src.user_store import personalization_status, train_personalization_now
@@ -165,11 +165,13 @@ app = FastAPI(title="Movie Recommender API", version="1.0.0", lifespan=_lifespan
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    df = load_movies()
+    # Count what the API serves from the in-memory index (rebuilt after every add or
+    # refresh) instead of re-reading movies.csv on each poll; it made /health the slowest call.
+    index = _INDEX_STATE.get("index")
     last_refresh = _INDEX_STATE.get("last_refresh")
     return {
         "status": "ok",
-        "count": int(len(df)),
+        "count": int(len(index["df"])) if index is not None else None,
         "last_refresh": last_refresh.isoformat() if last_refresh else None,
     }
 

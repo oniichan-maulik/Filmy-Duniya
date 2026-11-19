@@ -90,3 +90,25 @@ def test_record_feedback_writes_profile_and_event(tmp_path, monkeypatch):
     lines = events_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
 
+
+
+def test_repeat_like_does_not_stack_and_switching_replaces_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_store, "_repo_root", lambda: tmp_path)
+    movie = {"title": "Demo Movie", "genres": "Comedy"}
+
+    user_store.record_feedback(mood="happy", movie=movie, rating=5.0)
+    user_store.record_feedback(mood="happy", movie=movie, rating=5.0)
+    profile = user_store.load_user_profile()
+    assert profile["title_preferences"]["demo movie"] == 1.0
+    assert profile["mood_genre_weights"]["happy"]["comedy"] == 1.0
+    assert user_store.title_verdict(movie) == "liked"
+
+    user_store.record_feedback(mood="happy", movie=movie, rating=1.0)
+    profile = user_store.load_user_profile()
+    assert abs(profile["title_preferences"]["demo movie"] - (-0.6)) < 1e-9
+    assert user_store.title_verdict(movie) == "disliked"
+
+
+def test_title_verdict_is_none_for_unrated_titles(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_store, "_repo_root", lambda: tmp_path)
+    assert user_store.title_verdict({"title": "Never Rated"}) is None
