@@ -27,7 +27,7 @@ from src.emotion_detection import detect_emotion_from_bytes
 from src.recommender import MOOD_TO_GENRES, similar_rows, similarity_index, taste_scores
 from src.scraper import scrape_top_n_movies
 from src.search import search_catalogue
-from src.user_store import load_user_profile, record_feedback, rerank_results_for_learning
+from src.user_store import load_user_profile, record_feedback, rerank_results_for_learning, title_verdict
 from mood_scan import mood_scan_button  # web/ is on sys.path: Streamlit adds the script's folder
 
 st.set_page_config(page_title="Filmy Duniya", layout="wide")
@@ -323,11 +323,15 @@ st.markdown(
 # --------------------------------------------------------------------------
 # Data helpers
 # --------------------------------------------------------------------------
+class _TmdbUnavailable(Exception):
+    """TMDB couldn't be reached. Raised inside cached helpers so the failure isn't cached."""
+
+
+# st.cache_data caches a None return like any other result but never caches an
+# exception. So the cached helpers raise on a failed call and the wrappers below
+# turn that into None: a real "no match" is cached, a network blip is retried.
 @st.cache_data(ttl=60 * 60, show_spinner=False)
-def _tmdb_search(title: str) -> Optional[dict]:
-    """First TMDB search hit for a title, or None."""
-    if not TMDB_API_KEY or not title:
-        return None
+def _tmdb_search_cached(title: str) -> Optional[dict]:
     try:
         resp = requests.get(
             "https://api.themoviedb.org/3/search/movie",
@@ -336,12 +340,22 @@ def _tmdb_search(title: str) -> Optional[dict]:
         )
         resp.raise_for_status()
         results = resp.json().get("results") or []
-        return results[0] if results else None
-    except Exception:
+    except (requests.RequestException, ValueError) as exc:
+        raise _TmdbUnavailable(type(exc).__name__) from exc  # the message holds the URL, key included
+    return results[0] if results else None
+
+
+def _tmdb_search(title: str) -> Optional[dict]:
+    """First TMDB search hit for a title, or None."""
+    if not TMDB_API_KEY or not title:
+        return None
+    try:
+        return _tmdb_search_cached(title)
+    except _TmdbUnavailable as exc:
+        logger.warning("TMDB search failed for %r: %s", title, exc)
         return None
 
 
-@st.cache_data(ttl=60 * 60, show_spinner=False)
 def poster_url(title: str, poster_path: Optional[str], size: str = "w500") -> str:
     path = poster_path.strip() if isinstance(poster_path, str) else ""
     if not path:
@@ -353,9 +367,8 @@ def poster_url(title: str, poster_path: Optional[str], size: str = "w500") -> st
 
 
 @st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
-def trailer_url(title: str) -> Optional[str]:
-    """A YouTube trailer or teaser from TMDB, if one exists."""
-    hit = _tmdb_search(title)
+def _trailer_url_cached(title: str) -> Optional[str]:
+    hit = _tmdb_search_cached(title)  # raises _TmdbUnavailable, so a failure isn't cached
     if not hit or not hit.get("id"):
         return None
     try:
@@ -365,12 +378,24 @@ def trailer_url(title: str) -> Optional[str]:
             timeout=6,
         )
         resp.raise_for_status()
-        for v in resp.json().get("results") or []:
-            if v.get("site") == "YouTube" and v.get("type") in {"Trailer", "Teaser"} and v.get("key"):
-                return f"https://www.youtube.com/watch?v={v['key']}"
-    except Exception:
-        return None
+        videos = resp.json().get("results") or []
+    except (requests.RequestException, ValueError) as exc:
+        raise _TmdbUnavailable(type(exc).__name__) from exc  # the message holds the URL, key included
+    for v in videos:
+        if v.get("site") == "YouTube" and v.get("type") in {"Trailer", "Teaser"} and v.get("key"):
+            return f"https://www.youtube.com/watch?v={v['key']}"
     return None
+
+
+def trailer_url(title: str) -> Optional[str]:
+    """A YouTube trailer or teaser from TMDB, if one exists."""
+    if not TMDB_API_KEY or not title:
+        return None
+    try:
+        return _trailer_url_cached(title)
+    except _TmdbUnavailable as exc:
+        logger.warning("TMDB trailer lookup failed for %r: %s", title, exc)
+        return None
 
 
 def _genre_mask(df: pd.DataFrame, genres: list[str]) -> pd.Series:
@@ -481,7 +506,8 @@ def mood_picks(mood: str) -> list[dict]:
     if df.empty:
         return []
     taste, disliked = _taste(df, matrix)
-    mask = _genre_mask(df, MOOD_TO_GENRES.get(mood, [])).to_numpy()
+    # copy: under pandas 3 copy-on-write, to_numpy() hands back a read-only view
+    mask = _genre_mask(df, MOOD_TO_GENRES.get(mood, [])).to_numpy(copy=True)
     if disliked:
         mask[list(disliked)] = False
     matches = df[mask]
@@ -806,6 +832,8 @@ def render_home() -> None:
     with st.container(key=f"hero-{mood if mood in MOOD_COPY else 'none'}"):
         if mood in MOOD_COPY:
             line, sub = MOOD_COPY[mood]
+            if st.session_state.get("mood_source") != "camera":
+                line = f"Feeling {mood}."  # picked by hand, so don't claim we read the face
         else:
             line, sub = "How are you feeling?", "Take a quick photo to read your mood, or pick one yourself."
         st.markdown(f"<h1 class='hero-line'>{line}</h1><p class='hero-sub'>{sub}</p>", unsafe_allow_html=True)
@@ -851,7 +879,8 @@ def render_home() -> None:
     if mood:
         picks = mood_picks(mood)
         if picks:
-            poster_grid(picks, "mood", f"Films for a {mood} mood")
+            article = "an" if mood[:1] in "aeiou" else "a"
+            poster_grid(picks, "mood", f"Films for {article} {mood} mood")
         else:
             st.markdown(
                 "<p class='empty'>Nothing in the catalogue matches this mood yet. Try another one.</p>",
@@ -938,14 +967,24 @@ def render_movie(movie: dict) -> None:
                 args=(movie,),
             )
         # Likes and dislikes train the personal ranker behind the mood picks.
+        # The chosen verdict shows as pressed and can't stack; the other one switches it.
+        verdict = title_verdict(movie)
         with liked:
-            if st.button("I liked it", key="liked", icon=":material/thumb_up:"):
+            if st.button(
+                "You liked it" if verdict == "liked" else "I liked it",
+                key="liked", icon=":material/thumb_up:", disabled=verdict == "liked",
+            ):
                 if _feedback(movie, rating=5.0):
                     st.toast("Got it. You’ll see more like this.")
+                    st.rerun()
         with disliked:
-            if st.button("Not for me", key="disliked", icon=":material/thumb_down:"):
+            if st.button(
+                "Not for you" if verdict == "disliked" else "Not for me",
+                key="disliked", icon=":material/thumb_down:", disabled=verdict == "disliked",
+            ):
                 if _feedback(movie, rating=1.0):
                     st.toast("Got it. You’ll see less like this.")
+                    st.rerun()
 
         trailer = trailer_url(title)
         if trailer:

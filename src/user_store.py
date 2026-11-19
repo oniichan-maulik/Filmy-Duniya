@@ -34,6 +34,7 @@ def _default_profile() -> Dict[str, Any]:
         "mood_counts": {},
         "mood_genre_weights": {},
         "title_preferences": {},
+        "verdicts": {},
     }
 
 
@@ -117,10 +118,17 @@ def _update_profile(
     signal = 0.0
     if rating is not None:
         try:
-            r = float(rating)
-            signal += (r - 2.5) / 2.5
+            rating_signal = (float(rating) - 2.5) / 2.5
         except (TypeError, ValueError):
-            pass
+            rating_signal = None
+        if rating_signal is not None:
+            # A rating replaces the last one for this title, so repeating a like
+            # adds nothing and switching to a dislike nets out the old like.
+            verdicts = profile.setdefault("verdicts", {})
+            previous = float(verdicts.get(title_key, 0.0)) if title_key else 0.0
+            if title_key:
+                verdicts[title_key] = rating_signal
+            signal += rating_signal - previous
     if favorite:
         signal += 0.6
 
@@ -182,6 +190,14 @@ def record_feedback(
             train_personalization_model(min_events=5)
         except Exception:
             logger.exception("Background personalization training failed")
+
+
+def title_verdict(movie: Dict[str, Any]) -> Optional[str]:
+    """'liked', 'disliked' or None: the viewer's current rating of this title."""
+    signal = load_user_profile().get("verdicts", {}).get(_title_key(movie))
+    if not signal:
+        return None
+    return "liked" if float(signal) > 0 else "disliked"
 
 
 def _learning_score(movie: Dict[str, Any], mood: Optional[str], profile: Dict[str, Any]) -> float:
