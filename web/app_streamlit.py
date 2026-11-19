@@ -366,6 +366,45 @@ def poster_url(title: str, poster_path: Optional[str], size: str = "w500") -> st
     return path if path.startswith("http") else f"https://image.tmdb.org/t/p/{size}{path}"
 
 
+# Card posters show at 136-200 CSS px, so w500 for every one wasted ~2/3 of the bytes.
+# The browser picks from these by layout width and screen density.
+CARD_SIZES = ("w185", "w342", "w500")
+FILM_SIZES = ("w342", "w500", "w780")
+# How wide each poster shows, matching the CSS breakpoints below.
+GRID_SIZES_ATTR = "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, min(16vw, 200px)"
+SHELF_SIZES_ATTR = "(max-width: 640px) 136px, 160px"
+FILM_SIZES_ATTR = "(max-width: 640px) 280px, 380px"
+EAGER_POSTERS = 6  # about the first visible row; the rest load lazily
+
+
+def poster_img(title: str, poster_path: Optional[str], sizes: tuple[str, ...], sizes_attr: str,
+               cls: str = "", eager: bool = False) -> str:
+    """An <img> with a TMDB srcset, so the browser fetches only as many pixels as it shows."""
+    src = poster_url(title, poster_path, size=sizes[1])
+    attrs = [f"src='{html.escape(src, quote=True)}'"]
+    marker = f"/t/p/{sizes[1]}/"
+    if marker in src:  # a TMDB path; a full URL or the placeholder has one size only
+        srcset = ", ".join(f"{src.replace(marker, f'/t/p/{s}/')} {s[1:]}w" for s in sizes)
+        attrs += [f"srcset='{html.escape(srcset, quote=True)}'", f"sizes='{sizes_attr}'"]
+    if cls:
+        attrs.append(f"class='{cls}'")
+    attrs.append(f"alt='Poster for {html.escape(title, quote=True)}'")
+    attrs.append("loading='eager' fetchpriority='high'" if eager else "loading='lazy'")
+    return f"<img {' '.join(attrs)}>"
+
+
+# Streamlit re-executes this script on every rerun, so this count starts fresh each time.
+_eager_left = [EAGER_POSTERS]
+
+
+def _take_eager() -> bool:
+    """True for the first EAGER_POSTERS cards drawn in this run of the script."""
+    if _eager_left[0] > 0:
+        _eager_left[0] -= 1
+        return True
+    return False
+
+
 @st.cache_data(ttl=24 * 60 * 60, show_spinner=False)
 def _trailer_url_cached(title: str) -> Optional[str]:
     hit = _tmdb_search_cached(title)  # raises _TmdbUnavailable, so a failure isn't cached
@@ -732,19 +771,16 @@ def poster_grid(movies: list[dict], key_prefix: str, label: Optional[str] = None
         cols = st.columns(GRID_COLUMNS)
         for col, movie in zip(cols, row):
             with col:
-                poster_card(movie, key_prefix)
+                poster_card(movie, key_prefix, GRID_SIZES_ATTR)
 
 
-def poster_card(movie: dict, key_prefix: str) -> None:
+def poster_card(movie: dict, key_prefix: str, sizes_attr: str) -> None:
     title = _text(movie, "title", "Untitled")
     uid = f"{key_prefix}-{zlib.crc32(_movie_key(movie).encode())}"
     with st.container(key=f"card-{uid}"):
-        img = poster_url(title, movie.get("poster_path"))
-        st.markdown(
-            f"<div class='poster-frame'><img class='poster' src='{html.escape(img, quote=True)}' "
-            f"alt='Poster for {html.escape(title, quote=True)}' loading='lazy'></div>",
-            unsafe_allow_html=True,
-        )
+        img = poster_img(title, movie.get("poster_path"), CARD_SIZES, sizes_attr,
+                         cls="poster", eager=_take_eager())
+        st.markdown(f"<div class='poster-frame'>{img}</div>", unsafe_allow_html=True)
         st.button(title, key=f"open-{uid}", on_click=go, args=("movie", movie))
         genre = _text(movie, "genres").split("|")[0]
         rating = _rating_text(movie)
@@ -768,7 +804,7 @@ def poster_shelf(heading: str, movies: list[dict], slug: str, genre: Optional[st
         cols = st.columns(len(movies))
         for col, movie in zip(cols, movies):
             with col:
-                poster_card(movie, f"shelf-{slug}")
+                poster_card(movie, f"shelf-{slug}", SHELF_SIZES_ATTR)
 
 
 def render_browse() -> None:
@@ -933,12 +969,8 @@ def render_movie(movie: dict) -> None:
     st.button("Back", key="back-movie", icon=":material/arrow_back:", on_click=go_back)
     left, right = st.container(key="film").columns([1, 2.2], gap="large")
     with left:
-        img = poster_url(title, movie.get("poster_path"), size="w780")
-        st.markdown(
-            f"<div class='film-poster'><img src='{html.escape(img, quote=True)}' "
-            f"alt='Poster for {html.escape(title, quote=True)}'></div>",
-            unsafe_allow_html=True,
-        )
+        img = poster_img(title, movie.get("poster_path"), FILM_SIZES, FILM_SIZES_ATTR, eager=True)
+        st.markdown(f"<div class='film-poster'>{img}</div>", unsafe_allow_html=True)
     with right:
         st.markdown(f"<h1 class='detail-title'>{html.escape(title)}</h1>", unsafe_allow_html=True)
         genres = _text(movie, "genres").replace("|", ", ")
