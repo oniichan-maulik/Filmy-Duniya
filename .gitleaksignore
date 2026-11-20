@@ -1,0 +1,11 @@
+# Known, already-handled findings that gitleaks should skip.
+# All 7 are the same old TMDB key from commit aac42df. It was removed from the
+# code (the key now lives in the untracked .env), but it stays in git history.
+# The real fix is revoking that key on TMDB. Any NEW leak still fails CI.
+aac42dfad11c2fa09a196532c9c7d5b336644347:src/config.py:generic-api-key:7
+aac42dfad11c2fa09a196532c9c7d5b336644347:RESEARCH_PAPER.md:generic-api-key:594
+aac42dfad11c2fa09a196532c9c7d5b336644347:src/api.py:generic-api-key:66
+aac42dfad11c2fa09a196532c9c7d5b336644347:web/app_streamlit.py.bak-20260315-2217:generic-api-key:223
+aac42dfad11c2fa09a196532c9c7d5b336644347:web/app_streamlit.py.bak-20260315-2217:generic-api-key:225
+aac42dfad11c2fa09a196532c9c7d5b336644347:web/app_streamlit.py:generic-api-key:356
+aac42dfad11c2fa09a196532c9c7d5b336644347:web/app_streamlit.py:generic-api-key:358

@@ -54,3 +54,30 @@ jobs:
         # the Playwright UI test needs a running app and a browser; it skips
         # itself unless RUN_UI_TESTS=1
         run: python -m pytest -q --ignore=tests/playwright_ui_test.py
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+    steps:
+      - name: Check out the code with full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # gitleaks scans every commit, not just the latest
+
+      - name: Install gitleaks
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "$base/$tarball"
+          curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          # refuse to run a download whose checksum doesn't match the release
+          grep " $tarball\$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+
+      - name: Scan for secrets
+        # known old findings are listed in .gitleaksignore; anything new fails
+        # the job. --redact keeps the secret itself out of the public log.
+        run: ./gitleaks git --no-banner --redact --verbose .
