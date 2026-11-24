@@ -188,10 +188,42 @@ def _feature_dict(movie: Dict[str, Any], mood: Optional[str]) -> Dict[str, float
     return feats
 
 
+def _collapse_app_ratings(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep only the latest in-app rating per title, labelled with that verdict.
+
+    The app logs a rating's change from the previous one (so the profile nets out
+    a switch), which as training labels would teach like +1.0 then dislike -1.6
+    for one film. Imported and legacy rows carry a source and pass through as is.
+    """
+    events = list(events)
+
+    def app_rating_title(e: Dict[str, Any]) -> Optional[str]:
+        if e.get("source") is not None or e.get("rating") is None:
+            return None
+        return str((e.get("movie") or {}).get("title", "") or "").strip().lower() or None
+
+    last_index = {}
+    for i, e in enumerate(events):
+        title = app_rating_title(e)
+        if title:
+            last_index[title] = i
+
+    out: List[Dict[str, Any]] = []
+    for i, e in enumerate(events):
+        title = app_rating_title(e)
+        if title:
+            if last_index[title] != i:
+                continue
+            verdict = (_safe_float(e.get("rating"), 2.5) - 2.5) / 2.5
+            e = {**e, "signal": verdict + (0.6 if e.get("favorite") else 0.0)}
+        out.append(e)
+    return out
+
+
 def _training_rows(events: Iterable[Dict[str, Any]]) -> tuple[List[Dict[str, float]], List[float]]:
     x_rows: List[Dict[str, float]] = []
     y_rows: List[float] = []
-    for e in events:
+    for e in _collapse_app_ratings(events):
         signal = _safe_float(e.get("signal", 0.0))
         if abs(signal) < 0.01:
             continue

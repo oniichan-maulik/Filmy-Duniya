@@ -112,3 +112,27 @@ def test_repeat_like_does_not_stack_and_switching_replaces_it(tmp_path, monkeypa
 def test_title_verdict_is_none_for_unrated_titles(tmp_path, monkeypatch):
     monkeypatch.setattr(user_store, "_repo_root", lambda: tmp_path)
     assert user_store.title_verdict({"title": "Never Rated"}) is None
+
+
+def test_switched_rating_trains_on_the_final_verdict_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(user_store, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(pm, "_repo_root", lambda: tmp_path)
+    movie = {"title": "Demo Movie", "genres": "Comedy"}
+    other = {"title": "Other Movie", "genres": "Drama"}
+
+    user_store.record_feedback(mood="happy", movie=movie, rating=5.0)
+    user_store.record_feedback(mood="happy", movie=other, favorite=True)
+    user_store.record_feedback(mood="happy", movie=movie, rating=1.0)
+
+    _, y = pm._training_rows(pm.load_feedback_events())
+    # One row for the save, one for Demo Movie at its final dislike (not +1.0 and -1.6).
+    assert sorted(round(v, 6) for v in y) == [-0.6, 0.6]
+
+
+def test_imported_ratings_are_not_collapsed():
+    rows = [
+        {"source": "csv_import", "rating": 5.0, "signal": 1.0, "movie": {"title": "A"}},
+        {"source": "csv_import", "rating": 1.0, "signal": -0.6, "movie": {"title": "A"}},
+    ]
+    _, y = pm._training_rows(rows)
+    assert y == [1.0, -0.6]

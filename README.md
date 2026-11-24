@@ -145,6 +145,24 @@ The Playwright UI smoke test is skipped by default. To run it, install the
 browsers (`playwright install`), start the Streamlit UI, then run
 `RUN_UI_TESTS=1 pytest`.
 
+## Status
+
+Paused (November 2026). The app works end to end: mood scan or mood pick,
+recommendations, film pages, likes and the watchlist. CI runs lint, tests on
+Python 3.11 and 3.12, and a gitleaks secret scan on every push.
+
+Known limits:
+
+- One shared profile: likes and the watchlist live in JSON files under `data/`,
+  so everyone using the app shares them.
+- The face model reads happy, calm and sad well; excited, angry and anxious
+  are unreliable from posed faces.
+- Lighthouse mobile performance is around 30, mostly from Streamlit's own
+  render time.
+
+Ideas for later: voice mood and voice search, per-user profiles, a gitleaks
+pre-commit hook, and less layout shift while shelves load.
+
 ## Author
 
 Developed by **Maulik Gupta** ([@oniichan-maulik](https://github.com/oniichan-maulik)).
