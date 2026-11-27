@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Filmy Duniya: Mood Scan → Picks → Like (critical call flow)",
+    "output": ".archify/suite-filmyduniya-20261127-164123/sequence.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "parentHref": "architecture.html",
+    "repository": {
+      "url": "https://github.com/oniichan-maulik/Filmy-Duniya.git",
+      "provider": "github",
+      "revision": "7c751c99e5578b2467d38f610b3b1a7c8e002968"
+    }
+  },
+  "participants": [
+    {
+      "id": "browser",
+      "type": "external",
+      "label": "Browser",
+      "sublabel": "mood_scan component",
+      "sources": [
+        {
+          "path": "web/mood_scan.py",
+          "line": 58,
+          "end_line": 75,
+          "label": "grab one frame"
+        },
+        {
+          "path": "web/mood_scan.py",
+          "line": 101,
+          "end_line": 120,
+          "label": "mood_scan_button"
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "Streamlit script",
+      "sublabel": "app_streamlit.py",
+      "sources": [
+        {
+          "path": "web/app_streamlit.py",
+          "line": 891,
+          "end_line": 925,
+          "label": "hero: scan → mood_picks"
+        },
+        {
+          "path": "web/app_streamlit.py",
+          "line": 683,
+          "end_line": 705,
+          "label": "scan_mood"
+        },
+        {
+          "path": "web/app_streamlit.py",
+          "line": 543,
+          "end_line": 579,
+          "label": "mood_picks"
+        }
+      ]
+    },
+    {
+      "id": "emotion",
+      "type": "backend",
+      "label": "emotion_detection",
+      "sublabel": "YuNet + HSEmotion",
+      "sources": [
+        {
+          "path": "src/emotion_detection.py",
+          "line": 96,
+          "end_line": 176,
+          "label": "face → probs → mood"
+        }
+      ]
+    },
+    {
+      "id": "space",
+      "type": "backend",
+      "label": "similar_space",
+      "sublabel": "recommender + embeddings",
+      "sources": [
+        {
+          "path": "web/app_streamlit.py",
+          "line": 495,
+          "end_line": 504,
+          "label": "cached 10 min"
+        },
+        {
+          "path": "src/recommender.py",
+          "line": 39,
+          "end_line": 96,
+          "label": "similarity_index, taste_scores"
+        },
+        {
+          "path": "src/embeddings.py",
+          "line": 49,
+          "end_line": 89,
+          "label": "embed_texts"
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "backend",
+      "label": "user_store",
+      "sublabel": "profile + rerank",
+      "sources": [
+        {
+          "path": "src/user_store.py",
+          "line": 151,
+          "end_line": 192,
+          "label": "record_feedback"
+        },
+        {
+          "path": "src/user_store.py",
+          "line": 217,
+          "end_line": 248,
+          "label": "rerank_results_for_learning"
+        }
+      ]
+    },
+    {
+      "id": "ranker",
+      "type": "backend",
+      "label": "ranker model",
+      "sublabel": "personalization_model",
+      "sources": [
+        {
+          "path": "src/personalization_model.py",
+          "line": 235,
+          "end_line": 295,
+          "label": "train"
+        },
+        {
+          "path": "src/personalization_model.py",
+          "line": 298,
+          "end_line": 336,
+          "label": "load + predict"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "type": "database",
+      "label": "data/ files",
+      "sublabel": "profile, events, .pkl",
+      "sources": [
+        {
+          "path": "src/user_store.py",
+          "line": 22,
+          "end_line": 77,
+          "label": "profile + events I/O"
+        },
+        {
+          "path": "src/personalization_model.py",
+          "line": 25,
+          "end_line": 26,
+          "label": "model path"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 155,
+      "to": 390,
+      "label": "1 · Scan mood"
+    },
+    {
+      "from": 394,
+      "to": 612,
+      "label": "2 · Candidate pool"
+    },
+    {
+      "from": 616,
+      "to": 930,
+      "label": "3 · Re-rank + render"
+    },
+    {
+      "from": 934,
+      "to": 1164,
+      "label": "4 · Like a film"
+    }
+  ],
+  "messages": [
+    {
+      "id": "m-photo",
+      "from": "browser",
+      "to": "ui",
+      "y": 170,
+      "label": "JPEG data URL",
+      "variant": "emphasis",
+      "note": "getUserMedia → canvas.toDataURL; base64-decoded in mood_scan_button"
+    },
+    {
+      "id": "m-detect",
+      "from": "ui",
+      "to": "emotion",
+      "y": 242,
+      "label": "detect_emotion_from_bytes",
+      "variant": "emphasis",
+      "note": "largest face, 7 emotions on CPU onnxruntime"
+    },
+    {
+      "id": "m-mood",
+      "from": "emotion",
+      "to": "ui",
+      "y": 314,
+      "label": "mood (EMOTION_TO_MOOD)",
+      "variant": "return",
+      "note": "no face / error → note, keep old mood; else st.rerun"
+    },
+    {
+      "id": "m-space",
+      "from": "ui",
+      "to": "space",
+      "y": 400,
+      "label": "similar_space()",
+      "note": "embedding cache hit skips the model; failure → TF-IDF only"
+    },
+    {
+      "id": "m-matrix",
+      "from": "space",
+      "to": "ui",
+      "y": 472,
+      "label": "df + similarity matrix",
+      "variant": "return"
+    },
+    {
+      "id": "m-profile",
+      "from": "ui",
+      "to": "store",
+      "y": 504,
+      "label": "load_user_profile()",
+      "note": "_taste: taste_scores(liked, disliked) on the matrix"
+    },
+    {
+      "id": "m-prefs",
+      "from": "store",
+      "to": "ui",
+      "y": 576,
+      "label": "title_preferences",
+      "variant": "return"
+    },
+    {
+      "id": "m-rerank",
+      "from": "ui",
+      "to": "store",
+      "y": 622,
+      "label": "rerank_results_for_learning",
+      "variant": "emphasis",
+      "note": "mood genres minus dislikes, _pick_varied, score = rating + taste"
+    },
+    {
+      "id": "m-readprof",
+      "from": "store",
+      "to": "files",
+      "y": 694,
+      "label": "read user_learning.json"
+    },
+    {
+      "id": "m-predict",
+      "from": "store",
+      "to": "ranker",
+      "y": 726,
+      "label": "predict_personalization_boost",
+      "note": "per film; any error → 0"
+    },
+    {
+      "id": "m-loadpkl",
+      "from": "ranker",
+      "to": "files",
+      "y": 798,
+      "label": "load .pkl (lru_cache)"
+    },
+    {
+      "id": "m-boost",
+      "from": "ranker",
+      "to": "store",
+      "y": 830,
+      "label": "boost clipped ±0.75",
+      "variant": "return"
+    },
+    {
+      "id": "m-ranked",
+      "from": "store",
+      "to": "ui",
+      "y": 862,
+      "label": "sorted by score + boost",
+      "variant": "return"
+    },
+    {
+      "id": "m-grid",
+      "from": "ui",
+      "to": "browser",
+      "y": 894,
+      "label": "Films for a <mood> mood",
+      "variant": "return"
+    },
+    {
+      "id": "m-like",
+      "from": "browser",
+      "to": "ui",
+      "y": 940,
+      "label": "click Like"
+    },
+    {
+      "id": "m-record",
+      "from": "ui",
+      "to": "store",
+      "y": 972,
+      "label": "record_feedback(rating=5.0)",
+      "variant": "emphasis",
+      "note": "under _PROFILE_LOCK; signal = new verdict − previous"
+    },
+    {
+      "id": "m-save",
+      "from": "store",
+      "to": "files",
+      "y": 1044,
+      "label": "save profile + append event"
+    },
+    {
+      "id": "m-train",
+      "from": "store",
+      "to": "ranker",
+      "y": 1076,
+      "label": "train (every 3rd event)",
+      "note": "runs inline in the click; errors only logged"
+    },
+    {
+      "id": "m-writepkl",
+      "from": "ranker",
+      "to": "files",
+      "y": 1148,
+      "label": "pickle personalization_model.pkl"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "ui",
+      "from": 170,
+      "to": 900
+    },
+    {
+      "participant": "emotion",
+      "from": 242,
+      "to": 320
+    },
+    {
+      "participant": "space",
+      "from": 400,
+      "to": 478
+    },
+    {
+      "participant": "store",
+      "from": 622,
+      "to": 868
+    },
+    {
+      "participant": "ranker",
+      "from": 726,
+      "to": 836
+    },
+    {
+      "participant": "ui",
+      "from": 940,
+      "to": 1154
+    },
+    {
+      "participant": "store",
+      "from": 972,
+      "to": 1154
+    },
+    {
+      "participant": "ranker",
+      "from": 1076,
+      "to": 1154
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "All in one process",
+      "items": [
+        "Every call here is an in-process Python call inside the Streamlit server; no HTTP hop to the FastAPI service",
+        "Only the photo crosses the network, from browser to Streamlit"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Two-stage scoring",
+      "items": [
+        "mood_picks: rating + taste likeness to liked films (dislikes removed)",
+        "user_store: + rule boost from the profile + ranker boost (each clipped)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Latency risk",
+      "items": [
+        "The first similar_space() can embed the whole catalogue (~25 s cold)",
+        "Every 3rd like retrains the ranker inside the click handler"
+      ]
+    }
+  ]
+}

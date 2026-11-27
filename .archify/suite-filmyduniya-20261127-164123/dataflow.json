@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Filmy Duniya: End-to-End Data Flow",
+    "output": ".archify/suite-filmyduniya-20261127-164123/dataflow.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "parentHref": "architecture.html",
+    "repository": {
+      "url": "https://github.com/oniichan-maulik/Filmy-Duniya.git",
+      "provider": "github",
+      "revision": "7c751c99e5578b2467d38f610b3b1a7c8e002968"
+    }
+  },
+  "stages": [
+    { "label": "Sources" },
+    { "label": "Ingest" },
+    { "label": "Store (data/)" },
+    { "label": "Score + rank" },
+    { "label": "Consume" }
+  ],
+  "nodes": [
+    {
+      "id": "tmdb", "type": "external", "label": "TMDB API", "sublabel": "popular + details", "stage": 0, "row": 0,
+      "sources": [{ "path": "src/scraper.py", "line": 36, "end_line": 59, "label": "fetch_popular / details" }]
+    },
+    {
+      "id": "client", "type": "external", "label": "API client", "sublabel": "POST /add_movie", "stage": 0, "row": 1,
+      "sources": [{ "path": "src/api.py", "line": 30, "end_line": 40, "label": "MovieIn schema" }]
+    },
+    {
+      "id": "webcam", "type": "frontend", "label": "Webcam frame", "sublabel": "JPEG in browser", "stage": 0, "row": 2,
+      "sources": [{ "path": "web/mood_scan.py", "line": 58, "end_line": 75, "label": "getUserMedia → toDataURL" }]
+    },
+    {
+      "id": "clicks", "type": "frontend", "label": "Viewer actions", "sublabel": "like / dislike / save", "stage": 0, "row": 3,
+      "sources": [{ "path": "web/app_streamlit.py", "line": 1009, "end_line": 1017, "label": "rating=5.0 / 1.0" }]
+    },
+    {
+      "id": "scraper", "type": "backend", "label": "scraper", "sublabel": "normalize + dedupe", "stage": 1, "row": 0, "tag": "daily",
+      "sources": [{ "path": "src/scraper.py", "line": 200, "end_line": 238, "label": "skip known ids/titles" }]
+    },
+    {
+      "id": "loader", "type": "backend", "label": "data_loader", "sublabel": "locked atomic write", "stage": 1, "row": 1,
+      "sources": [{ "path": "src/data_loader.py", "line": 15, "end_line": 83, "label": "temp file + os.replace" }]
+    },
+    {
+      "id": "emotion", "type": "backend", "label": "emotion_detection", "sublabel": "YuNet → HSEmotion", "stage": 1, "row": 2, "tag": "in memory",
+      "sources": [
+        { "path": "src/emotion_detection.py", "line": 128, "end_line": 157, "label": "largest face → 7 emotions" },
+        { "path": "src/emotion_detection.py", "line": 45, "end_line": 53, "label": "EMOTION_TO_MOOD" }
+      ]
+    },
+    {
+      "id": "feedback", "type": "backend", "label": "record_feedback", "sublabel": "signal = rating delta", "stage": 1, "row": 3,
+      "sources": [{ "path": "src/user_store.py", "line": 103, "end_line": 182, "label": "update profile + event" }]
+    },
+    {
+      "id": "csv", "type": "database", "label": "movies.csv", "sublabel": "catalogue", "stage": 2, "row": 1,
+      "sources": [{ "path": "src/data_loader.py", "line": 30, "end_line": 40, "label": "load_movies dedupe" }]
+    },
+    {
+      "id": "events", "type": "database", "label": "feedback files", "sublabel": "profile .json + events .jsonl", "stage": 2, "row": 3,
+      "sources": [{ "path": "src/user_store.py", "line": 22, "end_line": 77, "label": "paths + writes" }]
+    },
+    {
+      "id": "index", "type": "backend", "label": "similarity index", "sublabel": "0.7 TF-IDF + 0.3 embed", "stage": 3, "row": 0,
+      "explanation": "UI: similar_space() caches the catalogue with similarity_index(df, embeddings) for 10 minutes; embeddings come from data/cache/*.npz and fall back to TF-IDF only. API: build_index() builds a dense cosine matrix (TF-IDF, or embeddings when USE_EMBEDDINGS=1).",
+      "sources": [
+        { "path": "web/app_streamlit.py", "line": 495, "end_line": 504, "label": "similar_space" },
+        { "path": "src/recommender.py", "line": 39, "end_line": 60, "label": "similarity_index" },
+        { "path": "src/recommender.py", "line": 99, "end_line": 108, "label": "API build_index" }
+      ]
+    },
+    {
+      "id": "search", "type": "backend", "label": "search_catalogue", "sublabel": "fuzzy title / person", "stage": 3, "row": 1,
+      "sources": [{ "path": "src/search.py", "line": 122, "end_line": 155, "label": "scores + suggestion" }]
+    },
+    {
+      "id": "picks", "type": "backend", "label": "mood_picks", "sublabel": "genre mask + taste", "stage": 3, "row": 2, "tag": "rerank",
+      "sources": [
+        { "path": "web/app_streamlit.py", "line": 527, "end_line": 579, "label": "_taste + mood_picks" },
+        { "path": "src/user_store.py", "line": 203, "end_line": 248, "label": "rule + model boost" }
+      ]
+    },
+    {
+      "id": "ranker", "type": "backend", "label": "ranker training", "sublabel": "SGDRegressor → .pkl", "stage": 3, "row": 3,
+      "sources": [
+        { "path": "src/personalization_model.py", "line": 191, "end_line": 232, "label": "last verdict per title" },
+        { "path": "src/personalization_model.py", "line": 235, "end_line": 295, "label": "fit + pickle" }
+      ]
+    },
+    {
+      "id": "api", "type": "backend", "label": "FastAPI", "sublabel": "/recommend JSON", "stage": 4, "row": 0,
+      "sources": [{ "path": "src/api.py", "line": 179, "end_line": 199, "label": "/recommend" }]
+    },
+    {
+      "id": "ui", "type": "frontend", "label": "Streamlit shelves", "sublabel": "grid, search, More like this", "stage": 4, "row": 2,
+      "sources": [
+        { "path": "web/app_streamlit.py", "line": 915, "end_line": 925, "label": "mood grid" },
+        { "path": "web/app_streamlit.py", "line": 517, "end_line": 524, "label": "more_like_this" }
+      ]
+    }
+  ],
+  "flows": [
+    { "id": "f-tmdb", "from": "tmdb", "to": "scraper", "label": "titles + credits", "variant": "emphasis" },
+    { "id": "f-scrape", "from": "scraper", "to": "loader", "label": "new rows", "variant": "emphasis" },
+    { "id": "f-client", "from": "client", "to": "loader", "label": "MovieIn JSON" },
+    { "id": "f-write", "from": "loader", "to": "csv", "label": "atomic CSV", "variant": "emphasis" },
+    { "id": "f-cat-index", "from": "csv", "to": "index", "label": "catalogue rows", "variant": "emphasis" },
+    { "id": "f-cat-search", "from": "csv", "to": "search", "label": "catalogue df" },
+    { "id": "f-photo", "from": "webcam", "to": "emotion", "label": "JPEG bytes" },
+    { "id": "f-mood", "from": "emotion", "to": "picks", "label": "mood", "variant": "emphasis" },
+    { "id": "f-clicks", "from": "clicks", "to": "feedback", "label": "rating / favorite" },
+    { "id": "f-persist", "from": "feedback", "to": "events", "label": "profile + event" },
+    { "id": "f-taste", "from": "index", "to": "picks", "label": "taste scores" },
+    { "id": "f-prefs", "from": "events", "to": "picks", "label": "title prefs" },
+    { "id": "f-train", "from": "events", "to": "ranker", "label": "labeled events" },
+    { "id": "f-boost", "from": "ranker", "to": "picks", "label": "boost ±0.75" },
+    { "id": "f-recommend", "from": "index", "to": "api", "label": "similar titles" },
+    { "id": "f-ranked", "from": "picks", "to": "ui", "label": "ranked picks", "variant": "emphasis" },
+    { "id": "f-hits", "from": "search", "to": "ui", "label": "matches + hint" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Catalogue path",
+      "items": [
+        "TMDB → scraper → data_loader → movies.csv is the only way titles enter, besides POST /add_movie",
+        "Writes are serialized by _CSV_LOCK and published by atomic rename",
+        "The UI rereads the CSV every 10 min (st.cache_data ttl)"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Personal signal",
+      "items": [
+        "A like/dislike stores the change from the previous verdict, so switching nets out",
+        "Training keeps only each title's final verdict as the label",
+        "Photos are decoded in memory and never written to disk"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Not drawn",
+      "items": [
+        "Posters and trailers: the UI fetches them from TMDB per title (cached 1 h / 24 h)",
+        "Watchlist saves go to data/watchlist.json and also record a favorite signal",
+        "Index caches in data/cache/ (.npy, .pkl, embeddings .npz)"
+      ]
+    }
+  ]
+}
