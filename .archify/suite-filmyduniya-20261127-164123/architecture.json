@@ -1,0 +1,722 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Filmy Duniya: Module and Layer Architecture",
+    "output": ".archify/suite-filmyduniya-20261127-164123/architecture.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "repository": {
+      "url": "https://github.com/oniichan-maulik/Filmy-Duniya.git",
+      "provider": "github",
+      "revision": "7c751c99e5578b2467d38f610b3b1a7c8e002968"
+    }
+  },
+  "components": [
+    {
+      "id": "viewer",
+      "type": "external",
+      "label": "Viewer's browser",
+      "sublabel": "page + one webcam frame",
+      "sources": [
+        {
+          "path": "web/mood_scan.py",
+          "line": 58,
+          "end_line": 75,
+          "label": "getUserMedia → JPEG"
+        }
+      ],
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "client",
+      "type": "external",
+      "label": "Local HTTP client",
+      "sublabel": "curl / healthcheck",
+      "sources": [
+        {
+          "path": "docker-compose.yml",
+          "line": 14,
+          "end_line": 24,
+          "label": "127.0.0.1:8000, /health"
+        }
+      ],
+      "pos": [
+        40,
+        640
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "Streamlit UI",
+      "sublabel": "web/app_streamlit.py :8501",
+      "tag": "process 1",
+      "explanation": "The Streamlit script imports the src/ library directly; it never calls the FastAPI service over HTTP. Each rerun renders home, genre, watchlist or film page.",
+      "drilldowns": [
+        {
+          "href": "sequence.html",
+          "label": "Mood scan → picks → like (sequence)",
+          "diagram_type": "sequence"
+        },
+        {
+          "href": "dataflow.html",
+          "label": "End-to-end data flow",
+          "diagram_type": "dataflow"
+        }
+      ],
+      "sources": [
+        {
+          "path": "web/app_streamlit.py",
+          "line": 23,
+          "end_line": 31,
+          "label": "direct src/ imports"
+        },
+        {
+          "path": "web/app_streamlit.py",
+          "line": 1031,
+          "end_line": 1047,
+          "label": "script entry + view router"
+        }
+      ],
+      "pos": [
+        260,
+        60
+      ],
+      "size": [
+        180,
+        440
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI service",
+      "sublabel": "src/api.py :8000, no auth",
+      "tag": "process 2",
+      "explanation": "Holds the similarity index in memory behind _BUILD_LOCK/_INDEX_LOCK. Lifespan builds it at startup and spawns a periodic scrape+rebuild loop and a 5-minute personalization training loop.",
+      "sources": [
+        {
+          "path": "src/api.py",
+          "line": 97,
+          "end_line": 158,
+          "label": "index state + background loops"
+        },
+        {
+          "path": "src/api.py",
+          "line": 166,
+          "end_line": 259,
+          "label": "HTTP routes"
+        }
+      ],
+      "pos": [
+        260,
+        540
+      ],
+      "size": [
+        180,
+        240
+      ]
+    },
+    {
+      "id": "search",
+      "type": "backend",
+      "label": "search",
+      "sublabel": "rapidfuzz title / person / genre",
+      "sources": [
+        {
+          "path": "src/search.py",
+          "line": 122,
+          "end_line": 155,
+          "label": "search_catalogue"
+        }
+      ],
+      "pos": [
+        700,
+        60
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "recommender",
+      "type": "backend",
+      "label": "recommender",
+      "sublabel": "TF-IDF index + similarity",
+      "explanation": "UI path: similarity_index blends 0.7 TF-IDF with 0.3 embeddings in memory. API path: build_index → preprocess/vectorize/similarity writes .npy/.pkl caches.",
+      "sources": [
+        {
+          "path": "src/recommender.py",
+          "line": 39,
+          "end_line": 96,
+          "label": "similarity_index, taste_scores"
+        },
+        {
+          "path": "src/recommender.py",
+          "line": 99,
+          "end_line": 140,
+          "label": "build_index, by title"
+        },
+        {
+          "path": "src/vectorize.py",
+          "line": 25,
+          "end_line": 41,
+          "label": "vectorize + cache"
+        }
+      ],
+      "pos": [
+        700,
+        244
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "embeddings",
+      "type": "backend",
+      "label": "embeddings",
+      "sublabel": "sentence-transformers, cached",
+      "sources": [
+        {
+          "path": "src/embeddings.py",
+          "line": 49,
+          "end_line": 89,
+          "label": "embed_texts, None on failure"
+        }
+      ],
+      "pos": [
+        700,
+        152
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "emotion",
+      "type": "backend",
+      "label": "emotion_detection",
+      "sublabel": "YuNet face → HSEmotion",
+      "sources": [
+        {
+          "path": "src/emotion_detection.py",
+          "line": 128,
+          "end_line": 176,
+          "label": "detect_emotion_*"
+        }
+      ],
+      "pos": [
+        700,
+        520
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "userstore",
+      "type": "backend",
+      "label": "user_store",
+      "sublabel": "feedback + re-ranking",
+      "sources": [
+        {
+          "path": "src/user_store.py",
+          "line": 151,
+          "end_line": 192,
+          "label": "record_feedback"
+        },
+        {
+          "path": "src/user_store.py",
+          "line": 217,
+          "end_line": 248,
+          "label": "rerank_results_for_learning"
+        }
+      ],
+      "pos": [
+        700,
+        612
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "ranker",
+      "type": "backend",
+      "label": "personalization_model",
+      "sublabel": "SGDRegressor ranker",
+      "sources": [
+        {
+          "path": "src/personalization_model.py",
+          "line": 235,
+          "end_line": 295,
+          "label": "train"
+        },
+        {
+          "path": "src/personalization_model.py",
+          "line": 319,
+          "end_line": 336,
+          "label": "predict boost"
+        }
+      ],
+      "pos": [
+        700,
+        704
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "dataloader",
+      "type": "backend",
+      "label": "data_loader",
+      "sublabel": "CSV read + locked atomic write",
+      "sources": [
+        {
+          "path": "src/data_loader.py",
+          "line": 15,
+          "end_line": 116,
+          "label": "load / append / append_bulk"
+        }
+      ],
+      "pos": [
+        700,
+        336
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "scraper",
+      "type": "backend",
+      "label": "scraper",
+      "sublabel": "TMDB popular movies + TV",
+      "sources": [
+        {
+          "path": "src/scraper.py",
+          "line": 36,
+          "end_line": 59,
+          "label": "fetch_popular / details"
+        },
+        {
+          "path": "src/scraper.py",
+          "line": 200,
+          "end_line": 238,
+          "label": "dedupe + append_bulk"
+        }
+      ],
+      "pos": [
+        700,
+        428
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "csv",
+      "type": "database",
+      "label": "data/movies.csv",
+      "sublabel": "catalogue",
+      "sources": [
+        {
+          "path": "src/config.py",
+          "line": 13,
+          "end_line": 13,
+          "label": "DATA_PATH"
+        }
+      ],
+      "pos": [
+        1020,
+        336
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "cache",
+      "type": "database",
+      "label": "data/cache/",
+      "sublabel": ".npy / .pkl / .npz",
+      "sources": [
+        {
+          "path": "src/similarity.py",
+          "line": 4,
+          "end_line": 15,
+          "label": "similarity .npy"
+        },
+        {
+          "path": "src/embeddings.py",
+          "line": 23,
+          "end_line": 35,
+          "label": "embedding .npz"
+        }
+      ],
+      "pos": [
+        1020,
+        198
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "profile",
+      "type": "database",
+      "label": "data/ feedback files",
+      "sublabel": "user_learning.json + events.jsonl",
+      "sources": [
+        {
+          "path": "src/user_store.py",
+          "line": 22,
+          "end_line": 77,
+          "label": "profile + event log I/O"
+        }
+      ],
+      "pos": [
+        1020,
+        658
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "modelpkl",
+      "type": "database",
+      "label": "data/ ranker .pkl",
+      "sublabel": "personalization_model.pkl",
+      "sources": [
+        {
+          "path": "src/personalization_model.py",
+          "line": 25,
+          "end_line": 26,
+          "label": "model_path"
+        }
+      ],
+      "pos": [
+        1020,
+        760
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "watchlist",
+      "type": "database",
+      "label": "data/watchlist.json",
+      "sublabel": "written by the UI",
+      "sources": [
+        {
+          "path": "web/app_streamlit.py",
+          "line": 621,
+          "end_line": 636,
+          "label": "load / save watchlist"
+        }
+      ],
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "onnx",
+      "type": "database",
+      "label": "models/*.onnx",
+      "sublabel": "YuNet + HSEmotion weights",
+      "sources": [
+        {
+          "path": "src/emotion_detection.py",
+          "line": 38,
+          "end_line": 93,
+          "label": "model paths + loaders"
+        }
+      ],
+      "pos": [
+        1020,
+        520
+      ],
+      "size": [
+        180,
+        56
+      ]
+    },
+    {
+      "id": "tmdb",
+      "type": "external",
+      "label": "TMDB API",
+      "sublabel": "api.themoviedb.org/3",
+      "sources": [
+        {
+          "path": "src/scraper.py",
+          "line": 21,
+          "end_line": 21,
+          "label": "TMDB_BASE"
+        },
+        {
+          "path": "web/app_streamlit.py",
+          "line": 333,
+          "end_line": 345,
+          "label": "UI poster search"
+        }
+      ],
+      "pos": [
+        1020,
+        428
+      ],
+      "size": [
+        180,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "src/ core library (imported in-process by both apps)",
+      "wraps": [
+        "search",
+        "recommender",
+        "embeddings",
+        "emotion",
+        "userstore",
+        "ranker",
+        "dataloader",
+        "scraper"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "viewer-ui",
+      "from": "viewer",
+      "to": "ui",
+      "label": "page + JPEG",
+      "variant": "emphasis"
+    },
+    {
+      "id": "client-api",
+      "from": "client",
+      "to": "api",
+      "label": "HTTP JSON"
+    },
+    {
+      "id": "ui-search",
+      "from": "ui",
+      "to": "search",
+      "label": "search_catalogue"
+    },
+    {
+      "id": "ui-recommender",
+      "from": "ui",
+      "to": "recommender",
+      "label": "similar_rows / taste",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ui-embeddings",
+      "from": "ui",
+      "to": "embeddings",
+      "label": "if BLEND_EMBEDDINGS"
+    },
+    {
+      "id": "ui-emotion",
+      "from": "ui",
+      "to": "emotion",
+      "label": "mood scan"
+    },
+    {
+      "id": "ui-userstore",
+      "from": "ui",
+      "to": "userstore",
+      "label": "feedback / rerank",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ui-dataloader",
+      "from": "ui",
+      "to": "dataloader",
+      "label": "load_movies"
+    },
+    {
+      "id": "ui-scraper",
+      "from": "ui",
+      "to": "scraper",
+      "label": "daily scrape",
+      "variant": "dashed"
+    },
+    {
+      "id": "ui-watchlist",
+      "from": "ui",
+      "to": "watchlist",
+      "label": "save"
+    },
+    {
+      "id": "ui-tmdb",
+      "from": "ui",
+      "to": "tmdb",
+      "label": "posters + trailers"
+    },
+    {
+      "id": "api-recommender",
+      "from": "api",
+      "to": "recommender",
+      "label": "build_index / recommend"
+    },
+    {
+      "id": "api-dataloader",
+      "from": "api",
+      "to": "dataloader",
+      "label": "append_movie"
+    },
+    {
+      "id": "api-scraper",
+      "from": "api",
+      "to": "scraper",
+      "label": "auto-scrape",
+      "variant": "dashed"
+    },
+    {
+      "id": "api-emotion",
+      "from": "api",
+      "to": "emotion",
+      "label": "/analyze_frame"
+    },
+    {
+      "id": "api-userstore",
+      "from": "api",
+      "to": "userstore",
+      "label": "train / status"
+    },
+    {
+      "id": "recommender-dataloader",
+      "from": "recommender",
+      "to": "dataloader",
+      "label": "load_movies"
+    },
+    {
+      "id": "recommender-cache",
+      "from": "recommender",
+      "to": "cache",
+      "label": "write .npy"
+    },
+    {
+      "id": "embeddings-cache",
+      "from": "embeddings",
+      "to": "cache",
+      "label": "read / write .npz"
+    },
+    {
+      "id": "emotion-onnx",
+      "from": "emotion",
+      "to": "onnx",
+      "label": "load models"
+    },
+    {
+      "id": "userstore-profile",
+      "from": "userstore",
+      "to": "profile",
+      "label": "save + append"
+    },
+    {
+      "id": "userstore-ranker",
+      "from": "userstore",
+      "to": "ranker",
+      "label": "train / predict"
+    },
+    {
+      "id": "ranker-profile",
+      "from": "ranker",
+      "to": "profile",
+      "label": "read events"
+    },
+    {
+      "id": "ranker-modelpkl",
+      "from": "ranker",
+      "to": "modelpkl",
+      "label": "pickle"
+    },
+    {
+      "id": "dataloader-csv",
+      "from": "dataloader",
+      "to": "csv",
+      "label": "read / atomic write",
+      "variant": "emphasis"
+    },
+    {
+      "id": "scraper-tmdb",
+      "from": "scraper",
+      "to": "tmdb",
+      "label": "GET popular"
+    },
+    {
+      "id": "scraper-dataloader",
+      "from": "scraper",
+      "to": "dataloader",
+      "label": "append_bulk"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two processes, one library",
+      "items": [
+        "The UI imports src/ directly; nothing in web/ or src/ reads API_URL, so the UI never calls the API",
+        "They share state only through files in data/",
+        "docker-compose runs backend, frontend and scraper from one image, each mounting ./data"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Background work",
+      "items": [
+        "API: scrape + rebuild every REFRESH_INTERVAL_SECONDS (0 disables)",
+        "API: retrain every 5 min when ≥5 new events exist",
+        "UI: scrape at most once per 24 h, guarded by a stamp and lock file",
+        "user_store: retrain on every 3rd feedback event"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Trust and fallbacks",
+      "items": [
+        "API has no auth; compose binds it to 127.0.0.1",
+        "Embedding failure → TF-IDF only; mood-scan failure → mood picker",
+        "One shared profile: everyone's likes land in the same files"
+      ]
+    }
+  ]
+}
